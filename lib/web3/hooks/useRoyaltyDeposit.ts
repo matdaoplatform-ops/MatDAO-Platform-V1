@@ -1,52 +1,50 @@
 "use client"
 
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import { parseUnits } from "viem"
-import toast from "react-hot-toast"
-
-const ESCROW_ABI = [
-  "function depositRoyalties(uint256 amount) external nonReentrant"
-] as const
+import { useCallback } from "react"
+import type { Hash } from "viem"
+import { ESCROW_ABI } from "@/lib/web3/abis"
+import { USDC_DECIMALS, requireAddress } from "@/lib/web3/config"
+import { Web3UserError, ensureAllowance, safeParseUnits } from "@/lib/web3/tx"
+import { useWeb3Tx } from "./useWeb3Tx"
 
 interface DepositRoyaltiesParams {
   escrowAddress: string
-  amount: number
+  /** Whole USDC (e.g. 10000 or "10000.50") or base units as bigint. */
+  amount: number | string | bigint
 }
 
+/**
+ * Simulates an enterprise royalty payment: approve USDC (if needed, waits for
+ * mining) then MatDAO_Escrow.depositRoyalties(amount).
+ */
 export function useRoyaltyDeposit() {
-  const { data: hash, writeContract, isPending, error } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash,
-  })
+  const { run, isPending, isSuccess, hash, error } = useWeb3Tx()
 
-  const depositRoyalties = async ({ escrowAddress, amount }: DepositRoyaltiesParams) => {
-    try {
-      toast.loading("Depositing royalties...", { id: "deposit-royalties" })
-      
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "depositRoyalties",
-        args: [parseUnits(amount.toString(), 6)],
-      })
-      
-      toast.loading("Transaction confirming...", { id: "deposit-royalties" })
-    } catch (err) {
-      console.error("Error depositing royalties:", err)
-      toast.error("Failed to deposit royalties", { id: "deposit-royalties" })
-      throw err
-    }
-  }
+  const depositRoyalties = useCallback(
+    async ({ escrowAddress, amount }: DepositRoyaltiesParams): Promise<Hash> =>
+      run({ toastId: "deposit-royalties", pending: "Preparing royalty deposit...", success: "Royalties deposited!" }, async (ctx) => {
+        const escrow = requireAddress(escrowAddress, "Escrow")
+        const value = typeof amount === "bigint" ? amount : safeParseUnits(amount, USDC_DECIMALS)
+        if (!value || value <= 0n) throw new Web3UserError("Enter a valid USDC amount.")
 
-  if (isSuccess) {
-    toast.success("Royalties deposited successfully!", { id: "deposit-royalties" })
-  }
+        const token = await ctx.publicClient.readContract({ address: escrow, abi: ESCROW_ABI, functionName: "fundingToken" })
 
-  return {
-    depositRoyalties,
-    isPending: isPending || isConfirming,
-    isSuccess,
-    error,
-    hash,
-  }
+        ctx.status("Checking USDC allowance...")
+        await ensureAllowance({
+          publicClient: ctx.publicClient,
+          writeContractAsync: ctx.writeContractAsync,
+          token,
+          owner: ctx.account,
+          spender: escrow,
+          amount: value,
+          onStatus: ctx.status,
+        })
+
+        ctx.status("Confirm the royalty deposit in your wallet...")
+        return ctx.writeAndWait({ address: escrow, abi: ESCROW_ABI, functionName: "depositRoyalties", args: [value] })
+      }),
+    [run],
+  )
+
+  return { depositRoyalties, isPending, isSuccess, hash, error }
 }

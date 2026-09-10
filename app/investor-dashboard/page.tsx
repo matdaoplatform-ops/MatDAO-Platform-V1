@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react"
 import Link from "next/link"
 import { useAuth } from "@/context/auth-context"
+import { RequireAuth } from "@/components/auth/require-auth"
 import { ConnectWalletButton } from "@/components/ConnectWalletButton"
 import {
   ArrowUpRight,
@@ -476,7 +477,15 @@ function getRiskLevel(technicalRisk: number): "Low" | "Medium" | "High" {
   return "High"
 }
 
-export default function InvestorDashboard() {
+export default function InvestorDashboardPage() {
+  return (
+    <RequireAuth roles={["investor", "staff"]}>
+      <InvestorDashboard />
+    </RequireAuth>
+  )
+}
+
+function InvestorDashboard() {
   const { user } = useAuth()
   const [timeframe, setTimeframe] = useState<Timeframe>("ALL")
   const [search, setSearch] = useState("")

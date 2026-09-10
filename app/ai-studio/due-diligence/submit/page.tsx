@@ -91,10 +91,10 @@ export default function DueDiligenceSubmitPage() {
         <p className="mb-8 text-sm text-white/60">
           Peer-reviewed papers, preprints, arXiv exports, or technical reports — scored across 9 investment
           dimensions with an integrity gate that forces total score to zero on research integrity failures.
-          PDF/DOCX files are parsed by the IP Engine backend (OpenAI embedding pipeline).
+          Files are parsed by the IP Engine backend; when an LLM key is configured a model reads the full document, otherwise scoring is rule-based (the status bar below says which).
         </p>
 
-        <BackendStatus required={false} />
+        <BackendStatus required />
 
         <div
           onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
@@ -145,8 +145,8 @@ export default function DueDiligenceSubmitPage() {
         <div className="mb-6 flex items-start gap-2 rounded-lg border border-white/10 bg-white/3 px-4 py-3">
           <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[#6efcff]" />
           <p className="text-xs text-white/55">
-            Prototype scorer runs client-side. Dim9 (Research Integrity) acts as a hard gate — if triggered,
-            total investment score is forced to zero regardless of other dimensions.
+            All scoring runs on the IP Engine backend — nothing is scored in the browser. Dim9 (Research Integrity)
+            acts as a hard gate — if triggered, total investment score is forced to zero regardless of other dimensions.
           </p>
         </div>
 

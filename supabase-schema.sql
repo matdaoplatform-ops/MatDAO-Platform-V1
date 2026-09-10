@@ -1,14 +1,29 @@
+-- =============================================================================
+-- MatDAO — fresh-install schema (base tables only)
+--
+-- Run this first in the Supabase SQL editor on a NEW project, then run
+-- `supabase/migrations/0001_platform_fixes.sql`, which installs every
+-- function, trigger, RLS policy, the notifications / project_reviews tables
+-- and the `project-documents` storage bucket.
+--
+-- On an EXISTING project you only need the migration file — it adds the
+-- columns below with `ADD COLUMN IF NOT EXISTS`.
+--
+-- Both files are idempotent.
+-- =============================================================================
+
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Create profiles table
+-- Create profiles table (id mirrors auth.users.id; the FK is added by the migration)
 CREATE TABLE IF NOT EXISTS profiles (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('researcher', 'staff', 'investor')),
+  role TEXT NOT NULL DEFAULT 'researcher' CHECK (role IN ('researcher', 'staff', 'investor')),
   wallet_address TEXT UNIQUE,
   university TEXT,
+  avatar_url TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -31,6 +46,17 @@ CREATE TABLE IF NOT EXISTS projects (
   risk_factors JSONB NOT NULL DEFAULT '[]',
   competitive_advantage JSONB NOT NULL DEFAULT '[]',
   ip_status JSONB NOT NULL DEFAULT '{"type": "", "status": "", "details": ""}',
+  -- Review workflow (see migration 0001 for the CHECK constraint and triggers)
+  status TEXT NOT NULL DEFAULT 'pending_review',
+  review_notes TEXT,
+  reviewed_by UUID REFERENCES profiles(id) ON DELETE SET NULL,
+  reviewed_at TIMESTAMP WITH TIME ZONE,
+  -- Submission metadata
+  submitter_email TEXT,
+  institution TEXT,
+  working_field TEXT,
+  documents JSONB NOT NULL DEFAULT '[]',   -- [{ name, path, size, type, kind }]
+  is_raising BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -63,7 +89,8 @@ CREATE TABLE IF NOT EXISTS verification_tasks (
   project_id UUID REFERENCES projects(id) ON DELETE CASCADE,
   project_title TEXT NOT NULL,
   proof_text TEXT NOT NULL,
-  submitted_by TEXT NOT NULL,
+  submitted_by TEXT NOT NULL,                                  -- display name
+  submitted_by_id UUID REFERENCES profiles(id) ON DELETE SET NULL, -- used by RLS
   submitted_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   ai_passed BOOLEAN DEFAULT false,
   ai_plagiarism_score INTEGER DEFAULT 0,
@@ -96,133 +123,45 @@ CREATE INDEX IF NOT EXISTS idx_profiles_email ON profiles(email);
 CREATE INDEX IF NOT EXISTS idx_profiles_role ON profiles(role);
 CREATE INDEX IF NOT EXISTS idx_projects_researcher ON projects(researcher_id);
 CREATE INDEX IF NOT EXISTS idx_projects_trl ON projects(trl);
+CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_assessments_user ON assessments(user_id);
 CREATE INDEX IF NOT EXISTS idx_assessments_project ON assessments(project_id);
 CREATE INDEX IF NOT EXISTS idx_verification_tasks_project ON verification_tasks(project_id);
 CREATE INDEX IF NOT EXISTS idx_verification_tasks_status ON verification_tasks(status);
+CREATE INDEX IF NOT EXISTS idx_verification_tasks_submitted_by_id ON verification_tasks(submitted_by_id);
 CREATE INDEX IF NOT EXISTS idx_submitted_milestones_user ON submitted_milestones(user_id);
 CREATE INDEX IF NOT EXISTS idx_submitted_milestones_project ON submitted_milestones(project_id);
 
--- Enable Row Level Security
+-- Enable Row Level Security (policies are installed by the migration; until
+-- then the tables are locked down for anon/authenticated clients)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assessments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE verification_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE submitted_milestones ENABLE ROW LEVEL SECURITY;
 
--- RLS Policies for profiles
-CREATE POLICY "Users can view their own profile" ON profiles
-  FOR SELECT USING (auth.uid() = id);
-
-CREATE POLICY "Users can update their own profile" ON profiles
-  FOR UPDATE USING (auth.uid() = id);
-
-CREATE POLICY "Staff can view all profiles" ON profiles
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'staff'
-    )
-  );
-
--- RLS Policies for projects
-CREATE POLICY "Everyone can view projects" ON projects
-  FOR SELECT USING (true);
-
-CREATE POLICY "Researchers can create projects" ON projects
-  FOR INSERT WITH CHECK (
-    auth.uid() = researcher_id AND
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'researcher'
-    )
-  );
-
-CREATE POLICY "Researchers can update their own projects" ON projects
-  FOR UPDATE USING (
-    researcher_id = auth.uid() AND
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'researcher'
-    )
-  );
-
-CREATE POLICY "Staff can update any project" ON projects
-  FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'staff'
-    )
-  );
-
--- RLS Policies for assessments
+-- Non-recursive policies that do not depend on helper functions.
+-- (Everything involving the staff role lives in the migration via is_staff().)
+DROP POLICY IF EXISTS "Users can view their own assessments" ON assessments;
 CREATE POLICY "Users can view their own assessments" ON assessments
   FOR SELECT USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can create their own assessments" ON assessments;
 CREATE POLICY "Users can create their own assessments" ON assessments
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
-CREATE POLICY "Staff can view all assessments" ON assessments
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'staff'
-    )
-  );
-
--- RLS Policies for verification_tasks
-CREATE POLICY "Researchers can view their own verification tasks" ON verification_tasks
-  FOR SELECT USING (
-    submitted_by IN (
-      SELECT name FROM profiles WHERE id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Researchers can create verification tasks" ON verification_tasks
-  FOR INSERT WITH CHECK (
-    submitted_by IN (
-      SELECT name FROM profiles WHERE id = auth.uid()
-    )
-  );
-
-CREATE POLICY "Researchers can update their pending verification tasks" ON verification_tasks
-  FOR UPDATE USING (
-    submitted_by IN (
-      SELECT name FROM profiles WHERE id = auth.uid()
-    ) AND status = 'pending'
-  );
-
-CREATE POLICY "Staff can view all verification tasks" ON verification_tasks
-  FOR SELECT USING (
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'staff'
-    )
-  );
-
-CREATE POLICY "Staff can update verification tasks" ON verification_tasks
-  FOR UPDATE USING (
-    EXISTS (
-      SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'staff'
-    )
-  );
-
--- RLS Policies for submitted_milestones
+DROP POLICY IF EXISTS "Users can view their own submitted milestones" ON submitted_milestones;
 CREATE POLICY "Users can view their own submitted milestones" ON submitted_milestones
   FOR SELECT USING (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can create submitted milestones" ON submitted_milestones;
 CREATE POLICY "Users can create submitted milestones" ON submitted_milestones
   FOR INSERT WITH CHECK (user_id = auth.uid());
 
+DROP POLICY IF EXISTS "Users can update their own submitted milestones" ON submitted_milestones;
 CREATE POLICY "Users can update their own submitted milestones" ON submitted_milestones
   FOR UPDATE USING (user_id = auth.uid());
 
--- Create updated_at trigger function
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-  NEW.updated_at = NOW();
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Create triggers for updated_at
-CREATE TRIGGER update_profiles_updated_at BEFORE UPDATE ON profiles
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
-
-CREATE TRIGGER update_projects_updated_at BEFORE UPDATE ON projects
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+-- =============================================================================
+-- NEXT STEP: run supabase/migrations/0001_platform_fixes.sql
+-- =============================================================================

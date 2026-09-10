@@ -3,26 +3,37 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { Check, Save, Target, Gem, Loader2, Download, Flame, ShieldCheck, AlertTriangle, Award, ChevronRight, Zap, Brain, Battery, Wind, Orbit, Info, MessageSquare, X, FileText, Users, Building2, Scale, Gavel, Search, TrendingUp, BarChart3, Sparkles, Lock, CheckCircle2, XCircle } from "lucide-react"
+import { Check, Save, Target, Gem, Loader2, Download, Flame, ShieldCheck, AlertTriangle, Award, ChevronRight, Zap, Brain, Battery, Orbit, MessageSquare, X, FileText, Scale, Gavel, Search, BarChart3, Sparkles, CheckCircle2 } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
-import { formatUsd } from "@/lib/ai-studio/api"
+import { describeProvenance, formatUsd, provenanceFromReport } from "@/lib/ai-studio/api"
 import { addAssessment, addSubmittedMilestone, MILESTONE_LABELS } from "@/lib/trl-services/storage"
-import { uploadMetadataToIPFSAction } from "@/lib/ipfs/uploadMetadataToIPFSAction"
+import { uploadMetadataToIPFSDetailedAction } from "@/lib/ipfs/uploadMetadataToIPFSAction"
 import { useMintIPNFT } from "@/lib/web3/hooks/useMintIPNFT"
-import { CONTRACT_ADDRESSES } from "@/lib/web3/config"
-import type { CombinedAssessmentReport } from "@/lib/trl-services/types"
+import toast from "react-hot-toast"
+import type { CombinedAssessmentReport, Milestone } from "@/lib/trl-services/types"
 import { SpiderChart } from "@/components/ai-studio/SpiderChart"
+import { AnalysisModeBanner } from "@/components/ai-studio/AnalysisModeBanner"
+import { DocumentReadCard } from "@/components/ai-studio/DocumentReadCard"
+import { DueDiligenceSection } from "@/components/ai-studio/DueDiligenceSection"
+import { MilestoneGuidance } from "@/components/ai-studio/MilestoneGuidance"
+import { EvidenceQuotes } from "@/components/ai-studio/EvidenceQuotes"
+import { FtoOverlapTable } from "@/components/ai-studio/FtoOverlapTable"
+import { PriorArtSection } from "@/components/ai-studio/PriorArtSection"
+import { ValuationNotice, isValuationUnavailable } from "@/components/ai-studio/ValuationNotice"
+import ClaimChartVisualizer from "@/components/ClaimChartVisualizer"
 import { generateReportPDF } from "@/lib/pdf/generateReportPDF"
+import { ChatAgent } from "./chat-agent"
 
 export default function ProjectAssessmentResultsPage() {
   const router = useRouter()
-  const { user } = useAuth()
+  const { user, getAccessToken } = useAuth()
   const [report, setReport] = useState<CombinedAssessmentReport | null>(null)
   const [saved, setSaved] = useState(false)
   const [minting, setMinting] = useState(false)
   const [minted, setMinted] = useState(false)
   const [nftTokenId, setNftTokenId] = useState<string | null>(null)
   const [ipfsUri, setIpfsUri] = useState<string | null>(null)
+  const [showChat, setShowChat] = useState(false)
 
   const { mintIPNFT, isPending: isMintingPending, isSuccess: isMintSuccess } = useMintIPNFT()
 
@@ -40,8 +51,10 @@ export default function ProjectAssessmentResultsPage() {
 
     setMinting(true)
     try {
-      // Upload metadata to IPFS using server action
-      const metadataUri = await uploadMetadataToIPFSAction(
+      // Upload metadata to IPFS using server action (requires a signed-in session)
+      const accessToken = await getAccessToken()
+      if (!accessToken) throw new Error("Sign in again to mint — your session has expired.")
+      const pin = await uploadMetadataToIPFSDetailedAction(
         {
           commercialViability: report.summary.ipScore,
           scientificIntegrity: report.summary.dueDiligenceScore || 85,
@@ -52,22 +65,27 @@ export default function ProjectAssessmentResultsPage() {
           title: report.title,
           description: `MatDAO IP-NFT representing validated material science research: ${report.title}`,
           researchField: report.category
-        }
+        },
+        accessToken,
       )
+      if (pin.mock) {
+        throw new Error("IPFS pinning is not configured (PINATA_JWT missing) — refusing to mint an IP-NFT with a placeholder metadata URI.")
+      }
+      const metadataUri = pin.uri
       setIpfsUri(metadataUri)
 
       // Mint IP-NFT
-      await mintIPNFT({
+      // contractAddress omitted → hook uses NEXT_PUBLIC_MATDAO_IPNFT_ADDRESS and throws a readable error if unset
+      const { tokenId } = await mintIPNFT({
         researcher: user.walletAddress as `0x${string}`,
         tokenURI: metadataUri,
-        contractAddress: CONTRACT_ADDRESSES.MATDAO_IPNFT || "0x0000000000000000000000000000000000000000"
       })
 
       setMinted(true)
-      setNftTokenId("1") // This would come from the contract event in production
+      setNftTokenId(tokenId !== null ? tokenId.toString() : null)
     } catch (error) {
       console.error("Error minting IP-NFT:", error)
-      alert("Failed to mint IP-NFT. Please ensure you have a wallet connected and the contract is deployed.")
+      toast.error(error instanceof Error ? error.message : "Failed to mint IP-NFT. Check wallet, network and contract address.")
     } finally {
       setMinting(false)
     }
@@ -102,72 +120,29 @@ export default function ProjectAssessmentResultsPage() {
     setSaved(true)
   }
 
-  // Check if this is using fallback data (backend unavailable)
-  const isFallbackData = report?.ipReport?.document_profile?.note?.includes("fallback") || 
-                         report?.ipReport?.classification?.classifier_model?.includes("fallback")
-
   if (!report) return null
+
+  const provenance = report.provenance ?? (report.ipReport ? provenanceFromReport(report.ipReport) : null)
+  const valuationUnavailable = isValuationUnavailable(report.ipReport?.valuation)
+  const trlEval = report.ipReport?.trl_evaluation
+  const ddLlm = report.dueDiligenceReport?.llmReport
 
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-black via-gray-950 to-black px-5 py-12 sm:px-6">
       <div className="relative z-10 mx-auto max-w-6xl">
-        {/* Fallback Data Warning */}
-        {isFallbackData && (
-          <div className="mb-8 rounded-2xl border border-blue-500/40 bg-gradient-to-r from-blue-500/10 to-blue-500/5 p-5 backdrop-blur-sm">
-            <div className="flex items-start gap-4">
-              <div className="flex-shrink-0 p-2 rounded-xl bg-blue-500/20">
-                <Info className="w-5 h-5 text-blue-400" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-blue-400 mb-2">Enhanced Analysis Mode</p>
-                <p className="text-sm text-white/70 leading-relaxed">
-                  {report.ipReport?.document_profile?.note?.includes("low quality") 
-                    ? "Content quality analysis indicates limited technical depth. Results based on available content analysis with enhanced keyword detection and semantic understanding."
-                    : "Advanced content analysis enabled. Results generated using intelligent content analysis with keyword detection, semantic understanding, and context-aware scoring."}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* Analysis mode: did an LLM actually read this, or did rule-based fallbacks run? */}
+        <AnalysisModeBanner
+          provenance={provenance}
+          note={`Generated ${new Date(report.createdAt).toLocaleString()}`}
+          className="mb-6"
+        />
 
-        {/* Document Summary Section */}
-        <div className="mb-8 border border-gray-200 bg-white rounded-lg p-6 shadow-sm">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 bg-gray-100 rounded-lg">
-              <Brain className="w-5 h-5 text-gray-700" />
-            </div>
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Document Analysis Summary</h2>
-              <p className="text-sm text-gray-500">Document structure and classification</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Document Type</p>
-              <p className="text-sm font-medium text-gray-900">{report.ipReport?.document_profile?.document_type || "Research Paper"}</p>
-            </div>
-            <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Word Count</p>
-              <p className="text-sm font-medium text-gray-900">{report.ipReport?.document_profile?.word_count?.toLocaleString() || "N/A"}</p>
-            </div>
-            <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Classification</p>
-              <p className="text-sm font-medium text-gray-900">{report.ipReport?.classification?.sector_name || "N/A"}</p>
-            </div>
-            <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-              <p className="text-xs text-gray-500 mb-1 uppercase tracking-wide">Primary Field</p>
-              <p className="text-sm font-medium text-gray-900">{(report.ipReport?.classification as any)?.field_classification?.primary || "Materials Science"}</p>
-            </div>
-          </div>
-          <div className="border border-gray-200 bg-gray-50 rounded-lg p-5">
-            <p className="text-xs text-gray-500 mb-3 uppercase tracking-wide">Analysis Overview</p>
-            <p className="text-sm text-gray-700 leading-relaxed">
-              This document has been analyzed for {report.ipReport?.document_profile?.word_count?.toLocaleString() || "various"} words across {report.ipReport?.document_profile?.sections_found?.length || 3} sections. 
-              The research is classified under {report.ipReport?.classification?.sector_name || "various fields"} with primary focus on {(report.ipReport?.classification as any)?.field_classification?.primary || "materials science"}. 
-              The analysis indicates a TRL level of {report.trlProject.trl} with an IP novelty score of {report.summary.ipScore}/100.
-            </p>
-          </div>
-        </div>
+        {/* Proof the engine read the upload */}
+        <DocumentReadCard
+          profile={report.ipReport?.document_profile}
+          stats={report.ipReport?.document_stats}
+          className="mb-8"
+        />
 
         <div className="mb-10 flex flex-wrap items-start justify-between gap-6">
           <div className="flex-1 min-w-[300px]">
@@ -238,18 +213,20 @@ export default function ProjectAssessmentResultsPage() {
             score={report.summary.ipScore}
             icon={<Flame className="w-5 h-5" />}
           />
-          <EnhancedMetric 
-            label="IP Valuation" 
-            value={report.ipReport?.valuation?.valuation_available && report.ipReport?.valuation?.valuation_range_usd 
-              ? `${formatUsd(report.ipReport.valuation.valuation_range_usd.low)} - ${formatUsd(report.ipReport.valuation.valuation_range_usd.high)}`
-              : report.summary.valuationUsd 
-                ? formatUsd(report.summary.valuationUsd) 
-                : "Not estimated"
+          <EnhancedMetric
+            label="IP Valuation"
+            value={valuationUnavailable
+              ? "Under revision"
+              : report.ipReport?.valuation?.valuation_range_usd
+                ? `${formatUsd(report.ipReport.valuation.valuation_range_usd.low)} - ${formatUsd(report.ipReport.valuation.valuation_range_usd.high)}`
+                : report.summary.valuationUsd
+                  ? formatUsd(report.summary.valuationUsd)
+                  : "Not estimated"
             }
             icon={<Gem className="w-5 h-5" />}
           />
-          <EnhancedMetric 
-            label="Due Diligence" 
+          <EnhancedMetric
+            label="Due Diligence"
             value={
               report.summary.dueDiligenceScore !== null
                 ? `${report.summary.dueDiligenceScore.toFixed(0)}%`
@@ -259,6 +236,8 @@ export default function ProjectAssessmentResultsPage() {
             icon={<ShieldCheck className="w-5 h-5" />}
           />
         </div>
+
+        <ValuationNotice valuation={report.ipReport?.valuation} className="mb-8" />
 
         {/* Comprehensive Analysis Section */}
         {(report.ipReport as any)?.comprehensive_analysis && (
@@ -462,10 +441,38 @@ export default function ProjectAssessmentResultsPage() {
                 </div>
                 <div className="flex-1">
                   <p className="text-sm font-semibold text-white/70 mb-3">Why TRL {report.trlProject.trl}?</p>
-                  <p className="text-base text-white/60 leading-relaxed">{report.trlProject.trlSummary}</p>
+                  <p className="text-base text-white/60 leading-relaxed whitespace-pre-line">{report.trlProject.trlSummary}</p>
+                  <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/55">
+                      Source: {report.trlProject.analysis_source ? report.trlProject.analysis_source.replace(/^llm:/, "LLM · ").replace(/_/g, " ") : describeProvenance(provenance)}
+                    </span>
+                    {typeof report.trlProject.trl_confidence === "number" && (
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-white/55">
+                        Confidence {(report.trlProject.trl_confidence * 100).toFixed(0)}%
+                      </span>
+                    )}
+                    {report.trlProject.self_reported_trl != null && (
+                      <span className={`rounded-full border px-2.5 py-1 ${
+                        Math.abs(report.trlProject.self_reported_delta ?? 0) >= 2
+                          ? "border-amber-500/40 bg-amber-500/10 text-amber-100"
+                          : "border-white/10 bg-white/5 text-white/55"
+                      }`}>
+                        Self-reported TRL {report.trlProject.self_reported_trl} · evidence-based TRL {report.trlProject.estimated_trl ?? report.trlProject.trl}
+                        {report.trlProject.self_reported_delta ? ` (${report.trlProject.self_reported_delta > 0 ? "+" : ""}${report.trlProject.self_reported_delta})` : ""}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>
+
+            <EvidenceQuotes
+              quotes={report.trlProject.evidence_quotes}
+              title="Evidence the TRL rests on"
+              emptyText={provenance?.analysisMode === "llm"
+                ? "The model cited no verbatim quotes for this TRL."
+                : "No evidence quotes — in rule-based mode the TRL comes from keyword matches, not from reading the document."}
+            />
             
             {/* Key Accomplishments */}
             <div className="rounded-2xl border border-white/10 bg-black/30 p-6 backdrop-blur-sm">
@@ -501,150 +508,87 @@ export default function ProjectAssessmentResultsPage() {
                 />
               </div>
               <div className="rounded-xl bg-white/5 p-4">
-                <p className="text-xs font-semibold text-[#6efcff] mb-2 uppercase tracking-wider">WHY THIS SCORE?</p>
+                <p className="text-xs font-semibold text-[#6efcff] mb-2 uppercase tracking-wider">WHERE THIS SCORE COMES FROM</p>
                 <p className="text-sm text-white/60 leading-relaxed">
-                  {(report.trlProject as any).scoreReasoning?.innovation || "Innovation score based on technical novelty, scientific rigor, and potential impact analysis."}
+                  {provenance?.analysisMode === "llm"
+                    ? `Assigned by the LLM (${[provenance.llmProvider, provenance.llmModel].filter(Boolean).join(" / ")}) as part of the TRL assessment, on a 0–100 scale. ` +
+                      (report.ipReport?.originality.assessment?.novelty_score != null
+                        ? `Independently, the prior-art verdict scored novelty at ${report.ipReport.originality.assessment.novelty_score}/100 — see IP Originality & Prior Art below.`
+                        : "See the evidence quotes and key indicators below for the model's reasoning.")
+                    : "Rule-based mode: the score is a formula of the TRL level and the originality premium from text similarity. It is not a judgement of the science — configure an LLM key on the backend for a real assessment."}
                 </p>
               </div>
             </div>
-            
-            {/* Paper Key Data Extraction */}
-            {(report.trlProject as any).keyData && (
-              <div className="rounded-2xl border border-[#6efcff]/30 bg-gradient-to-br from-[#6efcff]/10 to-[#6efcff]/5 p-6 backdrop-blur-sm">
-                <p className="text-sm font-semibold text-[#c5fdff] mb-4 flex items-center gap-2">
-                  <Brain className="w-4 h-4" />
-                  Paper Key Data Extraction
+
+            {/* Paper Review (LLM) */}
+            {report.trlProject.paper_review && (
+              <div className="rounded-2xl border border-[#6efcff]/30 bg-[#6efcff]/5 p-5">
+                <p className="text-sm font-semibold text-[#c5fdff] mb-3 flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Paper Review &amp; Validation
+                  {report.trlProject.paper_review.confidence_in_analysis && (
+                    <span className="ml-auto rounded-full border border-white/10 bg-white/5 px-2.5 py-0.5 text-[11px] font-normal text-white/60">
+                      confidence: {report.trlProject.paper_review.confidence_in_analysis}
+                    </span>
+                  )}
                 </p>
-                <div className="space-y-4">
-                  <div className="rounded-xl bg-black/30 p-4">
-                    <p className="text-xs font-semibold text-white/50 mb-2 uppercase tracking-wider">KEY FINDINGS</p>
-                    <ul className="space-y-2">
-                      {(report.trlProject as any).keyData.keyFindings.map((finding: string, i: number) => (
-                        <li key={i} className="text-sm text-white/70 leading-relaxed">
-                          • {finding.slice(0, 150)}{finding.length > 150 ? '...' : ''}
-                        </li>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {([
+                    ["Methodology", report.trlProject.paper_review.methodology_assessment],
+                    ["Data quality", report.trlProject.paper_review.data_quality],
+                    ["Reproducibility", report.trlProject.paper_review.reproducibility],
+                  ] as Array<[string, string | undefined]>).map(([label, text]) => (
+                    <div key={label} className="rounded-xl bg-black/30 p-3">
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-white/50">{label}</p>
+                      <p className="text-sm leading-relaxed text-white/70">{text || "—"}</p>
+                    </div>
+                  ))}
+                </div>
+                {(report.trlProject.paper_review.potential_hallucinations?.length ?? 0) > 0 && (
+                  <div className="mt-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 p-3">
+                    <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-yellow-300">
+                      <AlertTriangle className="h-3.5 w-3.5" /> Claims flagged as unsupported or possibly hallucinated
+                    </p>
+                    <ul className="space-y-1">
+                      {report.trlProject.paper_review.potential_hallucinations!.map((h, i) => (
+                        <li key={i} className="text-xs text-yellow-100/80">· {h}</li>
                       ))}
                     </ul>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="rounded-xl bg-black/30 p-4">
-                      <p className="text-xs font-semibold text-white/50 mb-2 uppercase tracking-wider">METHODOLOGY</p>
-                      <p className="text-sm text-white/70 leading-relaxed">
-                        {(report.trlProject as any).keyData.methodology?.slice(0, 80) || 'Not specified'}...
-                      </p>
-                    </div>
-                    <div className="rounded-xl bg-black/30 p-4">
-                      <p className="text-xs font-semibold text-white/50 mb-2 uppercase tracking-wider">RESULTS</p>
-                      <p className="text-sm text-white/70 leading-relaxed">
-                        {(report.trlProject as any).keyData.results?.slice(0, 80) || 'Not specified'}...
-                      </p>
-                    </div>
-                    <div className="rounded-xl bg-black/30 p-4">
-                      <p className="text-xs font-semibold text-white/50 mb-2 uppercase tracking-wider">IMPLICATIONS</p>
-                      <p className="text-sm text-white/70 leading-relaxed">
-                        {(report.trlProject as any).keyData.implications?.slice(0, 80) || 'Not specified'}...
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                )}
               </div>
             )}
-            
-            {/* Score Reasoning Breakdown */}
-            {(report.trlProject as any).scoreReasoning && (
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-6 backdrop-blur-sm">
-                <p className="text-sm font-semibold text-white/70 mb-4 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-yellow-400" />
-                  Score Reasoning Breakdown
-                </p>
-                <div className="space-y-4">
-                  <div className="rounded-xl bg-white/5 p-4">
-                    <p className="text-xs font-semibold text-orange-400 mb-2 uppercase tracking-wider">INNOVATION</p>
-                    <p className="text-sm text-white/60 leading-relaxed">
-                      {(report.trlProject as any).scoreReasoning.innovation}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white/5 p-4">
-                    <p className="text-xs font-semibold text-emerald-400 mb-2 uppercase tracking-wider">COMMERCIAL VIABILITY</p>
-                    <p className="text-sm text-white/60 leading-relaxed">
-                      {(report.trlProject as any).scoreReasoning.commercialViability}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white/5 p-4">
-                    <p className="text-xs font-semibold text-blue-400 mb-2 uppercase tracking-wider">SCIENTIFIC RIGOR</p>
-                    <p className="text-sm text-white/60 leading-relaxed">
-                      {(report.trlProject as any).scoreReasoning.scientificRigor}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-white/5 p-4">
-                    <p className="text-xs font-semibold text-purple-400 mb-2 uppercase tracking-wider">IP STRENGTH</p>
-                    <p className="text-sm text-white/60 leading-relaxed">
-                      {(report.trlProject as any).scoreReasoning.ipStrength}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {/* Paper Review Section */}
-            {(report.trlProject as any).paper_review && (
-              <div className="rounded-lg border border-[#6efcff]/30 bg-[#6efcff]/5 p-4">
-                <p className="text-xs font-semibold text-[#c5fdff] mb-2">📄 Paper Review & Validation</p>
-                <div className="space-y-2">
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs text-white/50 min-w-[100px]">Methodology:</span>
-                    <span className="text-xs text-white/70">{(report.trlProject as any).paper_review.methodology_assessment}</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs text-white/50 min-w-[100px]">Data Quality:</span>
-                    <span className="text-xs text-white/70">{(report.trlProject as any).paper_review.data_quality}</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs text-white/50 min-w-[100px]">Reproducibility:</span>
-                    <span className="text-xs text-white/70">{(report.trlProject as any).paper_review.reproducibility}</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span className="text-xs text-white/50 min-w-[100px]">Confidence:</span>
-                    <span className="text-xs text-white/70">{(report.trlProject as any).paper_review.confidence_in_analysis}</span>
-                  </div>
-                  {(report.trlProject as any).paper_review.potential_hallucinations && (report.trlProject as any).paper_review.potential_hallucinations.length > 0 && (
-                    <div className="mt-2 rounded-lg border border-yellow-500/30 bg-yellow-500/10 p-3">
-                      <p className="text-xs font-semibold text-yellow-400 mb-1">⚠️ Potential Hallucinations Detected:</p>
-                      <ul className="space-y-1">
-                        {(report.trlProject as any).paper_review.potential_hallucinations.map((h: string, i: number) => (
-                          <li key={i} className="text-xs text-yellow-200/80">
-                            · {h}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-            
+
             {/* Key Indicators */}
-            {(report.trlProject as any).key_indicators && (report.trlProject as any).key_indicators.length > 0 && (
-              <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-                <p className="text-xs font-semibold text-white/70 mb-2">Key Indicators Found:</p>
-                <ul className="space-y-1">
-                  {(report.trlProject as any).key_indicators.map((indicator: string, i: number) => (
-                    <li key={i} className="text-xs text-white/55">
-                      · {indicator}
+            {(report.trlProject.key_indicators?.length ?? 0) > 0 && (
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-5">
+                <p className="text-sm font-semibold text-white/70 mb-3 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-yellow-400" />
+                  Key indicators found in the text
+                </p>
+                <ul className="space-y-2">
+                  {report.trlProject.key_indicators!.map((indicator, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm leading-relaxed text-white/60">
+                      <span className="mt-0.5 text-yellow-400">•</span>
+                      <span>{indicator}</span>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
-            
+
             {/* Missing for Next TRL */}
-            {(report.trlProject as any).missing_for_next_trl && (report.trlProject as any).missing_for_next_trl.length > 0 && (
-              <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-                <p className="text-xs font-semibold text-white/70 mb-2">What's Needed for Next TRL:</p>
-                <ul className="space-y-1">
-                  {(report.trlProject as any).missing_for_next_trl.map((item: string, i: number) => (
-                    <li key={i} className="text-xs text-white/55">
-                      · {item}
+            {(report.trlProject.missing_for_next_trl?.length ?? 0) > 0 && (
+              <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-5">
+                <p className="text-sm font-semibold text-amber-100 mb-3 flex items-center gap-2">
+                  <Target className="w-4 h-4 text-amber-300" />
+                  What is needed for TRL {Math.min(9, report.trlProject.trl + 1)}
+                </p>
+                <ul className="space-y-2">
+                  {report.trlProject.missing_for_next_trl!.map((item, i) => (
+                    <li key={i} className="flex items-start gap-3 text-sm leading-relaxed text-white/65">
+                      <span className="mt-0.5 text-amber-300">•</span>
+                      <span>{item}</span>
                     </li>
                   ))}
                 </ul>
@@ -663,7 +607,7 @@ export default function ProjectAssessmentResultsPage() {
           </div>
           <div className="space-y-5">
             {/* Incomplete/Current Milestones with Recommendations */}
-            {Object.entries(report.trlProject.milestones)
+            {(Object.entries(report.trlProject.milestones) as Array<[string, Milestone]>)
               .filter(([, m]) => m.status === "current" || m.status === "future")
               .map(([key, m], index) => (
                 <div key={key} className={`rounded-2xl border p-6 transition-all duration-200 ${
@@ -706,45 +650,19 @@ export default function ProjectAssessmentResultsPage() {
                     </div>
                   </div>
                   
-                  {/* Enhanced What/Why/How Details */}
-                  <div className="mt-5 pt-5 -mx-6 px-6 border-t border-white/10">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <div className="rounded-xl bg-black/30 p-4 backdrop-blur-sm">
-                        <p className="text-xs font-semibold text-[#6efcff] mb-2 uppercase tracking-wider">WHAT</p>
-                        <p className="text-sm text-white/60 leading-relaxed">
-                          {m.status === "current" 
-                            ? "Complete the validation phase for this milestone by demonstrating technical feasibility and gathering required evidence."
-                            : "Plan and prepare for this milestone by establishing requirements and resource allocation."
-                          }
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-black/30 p-4 backdrop-blur-sm">
-                        <p className="text-xs font-semibold text-[#6efcff] mb-2 uppercase tracking-wider">WHY</p>
-                        <p className="text-sm text-white/60 leading-relaxed">
-                          {m.status === "current"
-                            ? "This milestone is critical for advancing to the next TRL level and demonstrating commercial viability to investors."
-                            : "This milestone builds on previous achievements and is necessary for scaling the technology."
-                          }
-                        </p>
-                      </div>
-                      <div className="rounded-xl bg-black/30 p-4 backdrop-blur-sm">
-                        <p className="text-xs font-semibold text-[#6efcff] mb-2 uppercase tracking-wider">HOW</p>
-                        <p className="text-sm text-white/60 leading-relaxed">
-                          {m.status === "current"
-                            ? "Conduct experiments, collect data, document results, and prepare verification materials for AI auditor review."
-                            : "Develop detailed plans, secure necessary resources, establish partnerships, and create implementation timeline."
-                          }
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Detailed breakdown */}
-                  {(m as any).specific_actions && (m as any).specific_actions.length > 0 && (
+                  {/* What / Why / How — derived from the engine's own actions when present */}
+                  <MilestoneGuidance
+                    milestone={m}
+                    isCurrent={m.status === "current"}
+                    trl={report.trlProject.trl}
+                    missingForNextTrl={m.status === "current" ? report.trlProject.missing_for_next_trl : undefined}
+                  />
+
+                  {(m.specific_actions?.length ?? 0) > 0 && (
                     <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 backdrop-blur-sm">
-                      <p className="text-sm font-semibold text-white/70 mb-3">Specific Actions Required:</p>
+                      <p className="text-sm font-semibold text-white/70 mb-3">Specific actions (from the engine):</p>
                       <ul className="space-y-2">
-                        {(m as any).specific_actions.map((action: string, i: number) => (
+                        {m.specific_actions!.map((action, i) => (
                           <li key={i} className="text-sm text-white/55 flex items-start gap-3 leading-relaxed">
                             <span className="text-[#6efcff]">•</span>
                             <span>{action}</span>
@@ -753,12 +671,12 @@ export default function ProjectAssessmentResultsPage() {
                       </ul>
                     </div>
                   )}
-                  
-                  {(m as any).resources_needed && (m as any).resources_needed.length > 0 && (
+
+                  {(m.resources_needed?.length ?? 0) > 0 && (
                     <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4 backdrop-blur-sm">
-                      <p className="text-sm font-semibold text-white/70 mb-3">Resources Needed:</p>
+                      <p className="text-sm font-semibold text-white/70 mb-3">Resources needed:</p>
                       <div className="flex flex-wrap gap-2">
-                        {(m as any).resources_needed.map((resource: string, i: number) => (
+                        {m.resources_needed!.map((resource, i) => (
                           <span key={i} className="text-xs bg-white/10 px-3 py-1.5 rounded-lg text-white/60">
                             {resource}
                           </span>
@@ -839,6 +757,9 @@ export default function ProjectAssessmentResultsPage() {
             </p>
           </div>
         </section>
+
+        {/* IP Originality & Prior Art — live search + LLM verdict */}
+        <PriorArtSection originality={report.ipReport?.originality} className="mb-8" />
 
         {/* USPTO Patent Search Results - New Section */}
         {(report.ipReport as any)?.uspto_patents && (report.ipReport as any).uspto_patents.length > 0 && (
@@ -1044,7 +965,6 @@ export default function ProjectAssessmentResultsPage() {
           </section>
         )}
 
-
         {/* Enhanced IP & FTO Analysis */}
         {report.ipReport && (
           <section className="mb-8 border border-gray-200 bg-white rounded-lg p-6 shadow-sm">
@@ -1065,8 +985,21 @@ export default function ProjectAssessmentResultsPage() {
               </div>
               <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
                 <p className="text-xs text-gray-500 mb-1">Target Valuation</p>
-                <p className="text-sm font-medium text-green-600">{formatUsd(report.ipReport.valuation.v_target_usd)}</p>
+                {valuationUnavailable ? (
+                  <p className="text-sm font-medium text-amber-600">Under revision</p>
+                ) : (
+                  <p className="text-sm font-medium text-green-600">{formatUsd(report.ipReport.valuation.v_target_usd)}</p>
+                )}
               </div>
+            </div>
+
+            {/* FTO overlap matrix with sources, missing elements, design-around */}
+            <div className="border border-gray-200 bg-gray-900 rounded-lg p-4 mb-4">
+              <p className="text-xs font-semibold text-white/80 mb-3">
+                Patent overlap matrix · {report.ipReport.fto.flagged_patent_count} flagged · risk tier {report.ipReport.fto.risk_tier_pct}% · {report.ipReport.fto.analysis_source.replace(/_/g, " ")}
+                {report.ipReport.fto.expert_consultation_required && <span className="ml-2 text-amber-300">attorney consultation recommended</span>}
+              </p>
+              <FtoOverlapTable rows={report.ipReport.fto.overlap_matrix} limit={6} />
             </div>
 
             {/* Enhanced Classification & Keywords */}
@@ -1150,7 +1083,16 @@ export default function ProjectAssessmentResultsPage() {
               </div>
             )}
             
-            <div className="mt-4 border border-gray-200 bg-gray-50 rounded-lg p-4">
+            {valuationUnavailable ? (
+              <div className="mt-4 border border-amber-200 bg-amber-50 rounded-lg p-4">
+                <p className="text-xs font-semibold text-gray-900 mb-1">Valuation Calculation Breakdown</p>
+                <p className="text-xs text-gray-700">
+                  Valuation model under revision — the engine returned no USD figures for this report
+                  {report.ipReport.valuation.valuation_message ? `: ${report.ipReport.valuation.valuation_message}` : "."}
+                </p>
+              </div>
+            ) : (
+              <div className="mt-4 border border-gray-200 bg-gray-50 rounded-lg p-4">
                 <p className="text-xs font-semibold text-gray-900 mb-2">Valuation Calculation Breakdown</p>
                 <div className="space-y-2 text-xs text-gray-700">
                   <div className="flex justify-between">
@@ -1174,6 +1116,7 @@ export default function ProjectAssessmentResultsPage() {
                   </p>
                 </div>
               </div>
+            )}
               <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
                 <p className="text-xs font-semibold text-gray-900 mb-2">Classification Details</p>
                 <div className="space-y-2 text-xs text-gray-700">
@@ -1378,196 +1321,9 @@ export default function ProjectAssessmentResultsPage() {
           </section>
         )}
 
-        {/* Enhanced Due Diligence */}
+        {/* Due Diligence */}
         {report.dueDiligenceReport && (
-          <section className="mb-8 border border-gray-200 bg-white rounded-lg p-6 shadow-sm">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-gray-100 rounded-lg">
-                <Brain className="w-5 h-5 text-gray-700" />
-              </div>
-              <h2 className="text-lg font-semibold text-gray-900">Due Diligence</h2>
-            </div>
-            
-            {/* Spider Chart Visualization */}
-            <div className="mb-6 border border-gray-200 bg-gray-50 rounded-lg p-4">
-              <p className="text-xs font-semibold text-gray-700 mb-4">Multi-Dimensional Analysis</p>
-              <SpiderChart data={report.dueDiligenceReport.dimensions.map((d: any) => ({
-                name: d.name,
-                score: d.score,
-                maxScore: d.maxScore
-              }))} />
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-                <p className="text-xs text-gray-500 mb-1">Total Score</p>
-                <div className="flex items-center gap-2">
-                  <p className={`text-lg font-bold ${getDueDiligenceScoreColor(report.dueDiligenceReport.totalScore)}`}>{report.dueDiligenceReport.totalScore.toFixed(1)}%</p>
-                  <div className="flex-1 bg-gray-200 rounded-full h-2">
-                    <div className={`h-2 rounded-full ${getDueDiligenceScoreBarColor(report.dueDiligenceReport.totalScore)}`} style={{ width: `${report.dueDiligenceReport.totalScore}%` }} />
-                  </div>
-                </div>
-              </div>
-              <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-                <p className="text-xs text-gray-500 mb-1">Investment Tier</p>
-                <span className={`text-sm font-bold uppercase ${getInvestmentTierColor(report.dueDiligenceReport.investmentTier)}`}>{report.dueDiligenceReport.investmentTier}</span>
-              </div>
-            </div>
-
-            {/* Detailed Dimension Breakdown */}
-            <div className="space-y-3 mb-6">
-              {report.dueDiligenceReport.dimensions.map((dim: any) => (
-                <div key={dim.id} className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-900">{dim.name}</span>
-                      <span className="text-xs bg-gray-200 px-2 py-0.5 rounded text-gray-600">{dim.layer}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-bold text-blue-600">{dim.score}/{dim.maxScore}</span>
-                      <span className="text-xs text-gray-500">({(dim.weight * 100).toFixed(0)}% weight)</span>
-                    </div>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-1.5 mb-2">
-                    <div 
-                      className="h-1.5 rounded-full bg-blue-500" 
-                      style={{ width: `${(dim.score / dim.maxScore) * 100}%` }}
-                    />
-                  </div>
-                  {dim.evidence && dim.evidence.length > 0 && (
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500 mb-1">Evidence:</p>
-                      <ul className="space-y-1">
-                        {dim.evidence.map((evidence: string, i: number) => (
-                          <li key={i} className="text-xs text-gray-600 flex items-start gap-2">
-                            <span className="text-blue-600">•</span>
-                            <span>{evidence}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-              
-              {/* DeepSeek-enhanced due diligence */}
-              {(report.dueDiligenceReport as any).scientific_rigor && (
-                <>
-                  <div className="border border-blue-200 bg-blue-50 rounded-lg p-4 mb-4">
-                    <p className="text-xs font-semibold text-gray-900 mb-2">Scientific Rigor</p>
-                    <div className="space-y-2 text-xs text-gray-700">
-                      <div className="flex justify-between">
-                        <span>Methodology Quality</span>
-                        <span>{(report.dueDiligenceReport as any).scientific_rigor.methodology_quality}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Experimental Design</span>
-                        <span>{(report.dueDiligenceReport as any).scientific_rigor.experimental_design}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Data Analysis</span>
-                        <span>{(report.dueDiligenceReport as any).scientific_rigor.data_analysis}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Reproducibility</span>
-                        <span>{(report.dueDiligenceReport as any).scientific_rigor.reproducibility_score}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="border border-gray-200 bg-gray-50 rounded-lg p-4 mb-4">
-                    <p className="text-xs font-semibold text-gray-900 mb-2">Innovation Assessment</p>
-                    <div className="space-y-2 text-xs text-gray-700">
-                      <div className="flex justify-between">
-                        <span>Technical Novelty</span>
-                        <span>{(report.dueDiligenceReport as any).innovation_assessment.technical_novelty}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Patentability Potential</span>
-                        <span>{(report.dueDiligenceReport as any).innovation_assessment.patentability_potential}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="border border-gray-200 bg-gray-50 rounded-lg p-4 mb-4">
-                    <p className="text-xs font-semibold text-gray-900 mb-2">Market Fit</p>
-                    <div className="space-y-2 text-xs text-gray-700">
-                      <div className="flex justify-between">
-                        <span>Problem Solving</span>
-                        <span>{(report.dueDiligenceReport as any).market_fit.problem_solving}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Market Need</span>
-                        <span>{(report.dueDiligenceReport as any).market_fit.market_need}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Competitive Advantage</span>
-                        <span>{(report.dueDiligenceReport as any).market_fit.competitive_advantage}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Scalability</span>
-                        <span>{(report.dueDiligenceReport as any).market_fit.scalability_potential}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="border border-gray-200 bg-gray-50 rounded-lg p-4 mb-4">
-                    <p className="text-xs font-semibold text-gray-900 mb-2">Risk Assessment</p>
-                    <div className="space-y-2">
-                      {(report.dueDiligenceReport as any).risk_assessment.technical_risks.length > 0 && (
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1">Technical Risks:</p>
-                          <ul className="space-y-1">
-                            {(report.dueDiligenceReport as any).risk_assessment.technical_risks.map((r: string, i: number) => (
-                              <li key={i} className="text-xs text-gray-600">• {r}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      {(report.dueDiligenceReport as any).risk_assessment.execution_risks.length > 0 && (
-                        <div>
-                          <p className="text-xs text-gray-500 mb-1">Execution Risks:</p>
-                          <ul className="space-y-1">
-                            {(report.dueDiligenceReport as any).risk_assessment.execution_risks.map((r: string, i: number) => (
-                              <li key={i} className="text-xs text-gray-600">• {r}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="border border-gray-200 bg-gray-50 rounded-lg p-4 mb-4">
-                    <p className="text-xs font-semibold text-gray-900 mb-2">Investment Recommendation</p>
-                    <div className="space-y-2 text-xs text-gray-700">
-                      <div className="flex justify-between">
-                        <span>Overall Score</span>
-                        <span className="font-semibold text-gray-900">{(report.dueDiligenceReport as any).investment_recommendation.overall_score}/100</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Recommended Action</span>
-                        <span className="font-semibold text-blue-600">{(report.dueDiligenceReport as any).investment_recommendation.recommended_action}</span>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="border border-gray-200 bg-gray-50 rounded-lg p-4">
-                    <p className="text-xs font-semibold text-gray-900 mb-2">Next Steps</p>
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Due Diligence Items:</p>
-                        <ul className="space-y-1">
-                          {(report.dueDiligenceReport as any).next_steps.due_diligence_items.map((item: string, i: number) => (
-                            <li key={i} className="text-xs text-gray-600">• {item}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-          </section>
+          <DueDiligenceSection dd={report.dueDiligenceReport} />
         )}
 
         <section className="mb-8 border border-gray-200 bg-white rounded-lg p-6 shadow-sm">
@@ -1620,7 +1376,10 @@ export default function ProjectAssessmentResultsPage() {
                 <h3 className="mb-2 font-semibold text-gray-900">IP Valuation & FTO Analysis</h3>
                 <p className="mb-2"><strong>Sector:</strong> {report.ipReport.classification.sector_name}</p>
                 <p className="mb-2"><strong>FTO Risk Score:</strong> {(report.ipReport.fto.r_fto * 100).toFixed(2)}%</p>
-                <p className="mb-2"><strong>Target Valuation:</strong> {formatUsd(report.ipReport.valuation.v_target_usd)}</p>
+                <p className="mb-2"><strong>Target Valuation:</strong> {valuationUnavailable ? "Valuation model under revision" : formatUsd(report.ipReport.valuation.v_target_usd)}</p>
+                {report.ipReport.originality.assessment?.novelty_score != null && (
+                  <p className="mb-2"><strong>Novelty (prior art):</strong> {report.ipReport.originality.assessment.novelty_score}/100 · {report.ipReport.originality.assessment.verdict}</p>
+                )}
                 <p className="mb-2"><strong>Classification:</strong> {report.ipReport.classification.ipc_primary}</p>
               </div>
             )}
@@ -1637,7 +1396,8 @@ export default function ProjectAssessmentResultsPage() {
             <div>
               <h3 className="mb-2 font-semibold text-gray-900">Summary Metrics</h3>
               <p className="mb-2"><strong>Innovation Score:</strong> {report.summary.ipScore}</p>
-              <p className="mb-2"><strong>IP Valuation:</strong> {report.summary.valuationUsd ? formatUsd(report.summary.valuationUsd) : "N/A"}</p>
+              <p className="mb-2"><strong>IP Valuation:</strong> {valuationUnavailable ? "Under revision" : report.summary.valuationUsd ? formatUsd(report.summary.valuationUsd) : "N/A"}</p>
+              <p className="mb-2"><strong>Analysis mode:</strong> {describeProvenance(provenance)}</p>
               <p><strong>Due Diligence Score:</strong> {report.summary.dueDiligenceScore !== null ? `${report.summary.dueDiligenceScore.toFixed(2)}%` : "N/A"}</p>
             </div>
 
@@ -1669,15 +1429,6 @@ export default function ProjectAssessmentResultsPage() {
       >
         {showChat ? <X className="w-6 h-6" /> : <MessageSquare className="w-6 h-6" />}
       </button>
-    </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="border border-gray-200 bg-gray-50 rounded-lg p-4 text-center">
-      <p className="text-xs uppercase tracking-wide text-gray-500">{label}</p>
-      <p className="mt-1 text-lg font-semibold text-gray-900">{value}</p>
     </div>
   )
 }
@@ -1767,23 +1518,3 @@ function getFTORiskColor(risk: number): string {
   return "text-green-600"
 }
 
-function getDueDiligenceScoreColor(score: number): string {
-  if (score >= 80) return "text-green-600"
-  if (score >= 60) return "text-teal-600"
-  if (score >= 40) return "text-amber-600"
-  return "text-red-600"
-}
-
-function getDueDiligenceScoreBarColor(score: number): string {
-  if (score >= 80) return "bg-green-500"
-  if (score >= 60) return "bg-teal-500"
-  if (score >= 40) return "bg-amber-500"
-  return "bg-red-500"
-}
-
-function getInvestmentTierColor(tier: string): string {
-  if (tier === "A" || tier === "A+") return "text-green-600"
-  if (tier === "B" || tier === "B+") return "text-teal-600"
-  if (tier === "C" || tier === "C+") return "text-amber-600"
-  return "text-gray-600"
-}

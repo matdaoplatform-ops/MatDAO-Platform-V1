@@ -1,87 +1,79 @@
 "use client"
 
-import { useWriteContract, useWaitForTransactionReceipt, useReadContract } from "wagmi"
-import toast from "react-hot-toast"
-
-const MOCK_USDC_ABI = [
-  "function approve(address spender, uint256 amount) public returns (bool)",
-  "function allowance(address owner, address spender) public view returns (uint256)",
-  "function decimals() public view returns (uint8)"
-] as const
-
-const ESCROW_ABI = [
-  "function fundProject(uint256 amount) external",
-  "function getFundingProgress() public view returns (uint256 current, uint256 goal, uint256 percentage)"
-] as const
+import { useCallback } from "react"
+import { useReadContract } from "wagmi"
+import type { Hash } from "viem"
+import { ESCROW_ABI } from "@/lib/web3/abis"
+import { TARGET_CHAIN_ID, requireAddress } from "@/lib/web3/config"
+import { Web3UserError, ensureAllowance } from "@/lib/web3/tx"
+import { useWeb3Tx } from "./useWeb3Tx"
 
 interface FundProjectParams {
+  /** Amount in USDC base units (6 decimals) - use parseUnits / safeParseUnits. */
   amount: bigint
   escrowAddress: string
-  tokenAddress: string
+  /** Funding token (MockUSDC). Read from the escrow (`fundingToken()`) when omitted. */
+  tokenAddress?: string
 }
 
+/**
+ * Funds the escrow: (1) approve USDC if the allowance is insufficient and wait
+ * for it to be mined, (2) MatDAO_Escrow.fundProject(amount) and wait.
+ */
 export function useFundProject() {
-  const { data: hash, writeContract, isPending, error } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash,
-  })
+  const { run, isPending, isSuccess, hash, error } = useWeb3Tx()
 
-  const fundProject = async ({ amount, escrowAddress, tokenAddress }: FundProjectParams) => {
-    try {
-      toast.loading("Approving token spend...", { id: "fund-project" })
-      
-      // First approve the escrow contract to spend tokens
-      await writeContract({
-        address: tokenAddress as `0x${string}`,
-        abi: MOCK_USDC_ABI,
-        functionName: "approve",
-        args: [escrowAddress as `0x${string}`, amount],
-      })
-      
-      toast.loading("Funding project...", { id: "fund-project" })
-      
-      // Then fund the project
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "fundProject",
-        args: [amount],
-      })
-      
-      toast.loading("Transaction confirming...", { id: "fund-project" })
-    } catch (err) {
-      console.error("Error funding project:", err)
-      toast.error("Failed to fund project", { id: "fund-project" })
-      throw err
-    }
-  }
+  const fundProject = useCallback(
+    async ({ amount, escrowAddress, tokenAddress }: FundProjectParams): Promise<Hash> =>
+      run({ toastId: "fund-project", pending: "Preparing funding...", success: "Project funded successfully!" }, async (ctx) => {
+        if (amount <= 0n) throw new Web3UserError("Enter an amount greater than zero.")
+        const escrow = requireAddress(escrowAddress, "Escrow")
+        const token = tokenAddress
+          ? requireAddress(tokenAddress, "Funding token")
+          : await ctx.publicClient.readContract({ address: escrow, abi: ESCROW_ABI, functionName: "fundingToken" })
 
-  // Show success toast when transaction confirms
-  if (isSuccess) {
-    toast.success("Project funded successfully!", { id: "fund-project" })
-  }
+        const [current, goal] = await ctx.publicClient.readContract({ address: escrow, abi: ESCROW_ABI, functionName: "getFundingProgress" })
+        if (current + amount > goal) {
+          throw new Web3UserError(`Amount exceeds the remaining funding goal (${((goal - current) / 10n ** 6n).toString()} USDC left).`)
+        }
 
-  return {
-    fundProject,
-    isPending: isPending || isConfirming,
-    isSuccess,
-    error,
-    hash,
-  }
+        ctx.status("Checking USDC allowance...")
+        await ensureAllowance({
+          publicClient: ctx.publicClient,
+          writeContractAsync: ctx.writeContractAsync,
+          token,
+          owner: ctx.account,
+          spender: escrow,
+          amount,
+          onStatus: ctx.status,
+        })
+
+        ctx.status("Confirm funding in your wallet...")
+        return ctx.writeAndWait({ address: escrow, abi: ESCROW_ABI, functionName: "fundProject", args: [amount] })
+      }),
+    [run],
+  )
+
+  return { fundProject, isPending, isSuccess, hash, error }
 }
 
-export function useFundingProgress(escrowAddress: string) {
-  const { data, isLoading, error } = useReadContract({
+/** Live funding progress from MatDAO_Escrow.getFundingProgress(). */
+export function useFundingProgress(escrowAddress?: string) {
+  const enabled = /^0x[0-9a-fA-F]{40}$/.test(escrowAddress || "")
+  const { data, isLoading, error, refetch } = useReadContract({
     address: escrowAddress as `0x${string}`,
     abi: ESCROW_ABI,
     functionName: "getFundingProgress",
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled },
   })
 
   return {
-    current: (data as readonly [bigint, bigint, bigint] | undefined)?.[0] || 0n,
-    goal: (data as readonly [bigint, bigint, bigint] | undefined)?.[1] || 0n,
-    percentage: (data as readonly [bigint, bigint, bigint] | undefined)?.[2] || 0n,
+    current: data?.[0] ?? 0n,
+    goal: data?.[1] ?? 0n,
+    percentage: data?.[2] ?? 0n,
     isLoading,
     error,
+    refetch,
   }
 }

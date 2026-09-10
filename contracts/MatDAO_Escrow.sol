@@ -10,6 +10,36 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
  * @title MatDAO_Escrow
  * @dev Milestone-based escrow contract for funding research projects with advanced DeFi features
  * Includes emergency refund, royalty waterfall, platform fees, and dividend distribution
+ *
+ * ---------------------------------------------------------------------------
+ * KNOWN ECONOMIC LIMITATIONS (demo / testnet design - intentionally NOT
+ * redesigned here; each item is a candidate for a follow-up audit):
+ *
+ *  1. IPT is not minted by this contract. Investors call `fundProject` with
+ *     USDC but receive no on-chain claim in return; IPT is distributed by the
+ *     MatDAO admin (MockIPT.mint) out-of-band. Refund and dividend shares are
+ *     therefore only as fair as that off-chain distribution.
+ *
+ *  2. Dividend accounting is balance-based, not snapshot-based. A holder that
+ *     claims, transfers IPT to a fresh wallet and claims again can collect the
+ *     same tokens' share twice (see `claimDividends`). The payout is capped by
+ *     the un-claimed dividend pool so milestone funds can never be drained this
+ *     way, but other holders can be shorted. TODO: switch to snapshot-based or
+ *     "magnified dividends per share" accounting (requires transfer hooks on
+ *     the IPT token, e.g. ERC20Snapshot) - too invasive for this pass.
+ *
+ *  3. Milestone funds and the dividend pool share one USDC balance. After
+ *     `toggleProjectFailure`, `claimEmergencyRefund` distributes the WHOLE
+ *     balance (including un-claimed dividends) pro-rata to refund claimants.
+ *
+ *  4. The 2.5% platform fee is deducted once at the funding goal and then the
+ *     same 2.5% is withheld from each milestone claim; the two are consistent
+ *     (goal * 97.5% == sum of net milestone payouts) but the fee is not
+ *     collected per-claim, it is simply never paid out.
+ *
+ *  5. `depositRoyalties` is permissionless: anyone can deposit USDC and 40% of
+ *     it is immediately forwarded to the treasury and researcher.
+ * ---------------------------------------------------------------------------
  */
 contract MatDAO_Escrow is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -37,7 +67,15 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
     
     // Royalty waterfall
     uint256 public totalDividendPool;
+    /// @notice Sum of all dividends paid out so far (never exceeds totalDividendPool).
+    uint256 public totalDividendsClaimed;
     mapping(address => uint256) public claimedDividends;
+
+    /// @notice IPT surrendered in an emergency refund is sent here so it can never
+    /// be re-used for another refund (the escrow only holds an IERC20 handle, so
+    /// it cannot burn). The tokens still count towards totalSupply(), which keeps
+    /// later refunds proportional.
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
     
     // Events
     event ProjectFunded(address indexed investor, uint256 amount);
@@ -49,6 +87,7 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
     event RoyaltiesDeposited(uint256 amount, uint256 daoFee, uint256 researcherFee, uint256 investorPool);
     event DividendClaimed(address indexed investor, uint256 amount);
     event PlatformFeeCollected(uint256 amount);
+    event IPTBurnedForRefund(address indexed investor, uint256 iptAmount);
 
     /**
      * @dev Constructor to initialize the escrow contract
@@ -105,6 +144,9 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
         require(!projectFunded, "Project already fully funded");
         require(!isProjectFailed, "Project has failed");
         require(amount > 0, "Amount must be > 0");
+        // Over-funding would strand USDC in the contract (milestones only ever
+        // pay out totalFundingGoal), so cap contributions at the remaining goal.
+        require(currentFunding + amount <= totalFundingGoal, "Exceeds remaining funding goal");
 
         // Transfer tokens from investor to contract
         fundingToken.safeTransferFrom(msg.sender, address(this), amount);
@@ -187,8 +229,13 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
     }
 
     /**
-     * @dev Claim emergency refund by burning IPT tokens (investor only)
-     * Returns proportional share of remaining escrow funds
+     * @dev Claim emergency refund by surrendering IPT tokens (investor only)
+     * Returns proportional share of remaining escrow funds.
+     *
+     * The caller must first `approve` this contract for their full IPT balance.
+     * The IPT is pulled and sent to BURN_ADDRESS so the same tokens can never
+     * claim a second refund. See contract-level NatSpec, item 3, for what
+     * "remaining escrow funds" includes.
      */
     function claimEmergencyRefund() external nonReentrant {
         require(isProjectFailed, "Project must be failed first");
@@ -203,8 +250,9 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
         uint256 refundAmount = (investorIPT * contractUSDC) / totalIPT;
         require(refundAmount > 0, "No refund available");
         
-        // Burn IPT tokens to prevent double-claiming
-        iptToken.transferFrom(msg.sender, address(this), investorIPT);
+        // Lock the surrendered IPT permanently (effects before interactions with USDC)
+        iptToken.safeTransferFrom(msg.sender, BURN_ADDRESS, investorIPT);
+        emit IPTBurnedForRefund(msg.sender, investorIPT);
         
         // Transfer refund to investor
         fundingToken.safeTransfer(msg.sender, refundAmount);
@@ -240,23 +288,28 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
 
     /**
      * @dev Claim dividends from royalty pool (IPT holders only)
-     * Returns proportional share of unclaimed dividends
+     * Returns proportional share of unclaimed dividends.
+     *
+     * Accounting: each address's lifetime entitlement is
+     *   balanceOf(user) * totalDividendPool / totalSupply()
+     * and `claimedDividends[user]` records what has already been paid, so a
+     * single address can never be paid twice for the same deposit. The payout
+     * is additionally capped at `totalDividendPool - totalDividendsClaimed`,
+     * which guarantees dividend claims can never touch escrowed milestone
+     * funds.
+     *
+     * TODO(economics): this is still balance-based - tokens moved to a fresh
+     * address after a claim regain a full entitlement (contract-level NatSpec,
+     * item 2). A correct fix needs per-deposit snapshots of IPT balances
+     * (ERC20Snapshot) or transfer hooks on the IPT token.
      */
     function claimDividends() external nonReentrant {
-        uint256 userIPT = iptToken.balanceOf(msg.sender);
-        require(userIPT > 0, "No IPT tokens held");
-        
-        uint256 totalIPT = iptToken.totalSupply();
-        require(totalIPT > 0, "No IPT supply");
-        
-        // Calculate user's share of total pool
-        uint256 totalShare = (userIPT * totalDividendPool) / totalIPT;
-        uint256 claimable = totalShare - claimedDividends[msg.sender];
-        
+        uint256 claimable = getClaimableDividends(msg.sender);
         require(claimable > 0, "No claimable dividends");
         
-        // Update claimed amount
+        // Update claimed amounts (effects) before transferring (interaction)
         claimedDividends[msg.sender] += claimable;
+        totalDividendsClaimed += claimable;
         
         // Transfer dividends to user
         fundingToken.safeTransfer(msg.sender, claimable);
@@ -337,12 +390,18 @@ contract MatDAO_Escrow is Ownable, ReentrancyGuard {
      */
     function getClaimableDividends(address user) public view returns (uint256) {
         uint256 userIPT = iptToken.balanceOf(user);
+        if (userIPT == 0) return 0;
         uint256 totalIPT = iptToken.totalSupply();
-        
         if (totalIPT == 0) return 0;
         
         uint256 totalShare = (userIPT * totalDividendPool) / totalIPT;
-        return totalShare - claimedDividends[user];
+        uint256 alreadyClaimed = claimedDividends[user];
+        if (totalShare <= alreadyClaimed) return 0;
+        uint256 claimable = totalShare - alreadyClaimed;
+        
+        // Never pay out more than what is left in the dividend pool
+        uint256 poolRemaining = totalDividendPool - totalDividendsClaimed;
+        return claimable > poolRemaining ? poolRemaining : claimable;
     }
 
     /**

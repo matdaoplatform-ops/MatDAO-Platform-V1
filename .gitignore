@@ -8,3 +8,11 @@ node_modules/
 .next/
 .env*.local
 .DS_Store
+
+# Hardhat build output (frontend ABIs are committed under lib/web3/abi instead)
+artifacts/
+cache/
+typechain-types/
+# ephemeral local deployments (deployments/sepolia.json is committed)
+deployments/hardhat.json
+deployments/localhost.json

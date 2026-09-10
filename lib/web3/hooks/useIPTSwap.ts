@@ -1,106 +1,101 @@
 "use client"
 
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import { parseUnits } from "viem"
-import toast from "react-hot-toast"
-
-const SWAP_ABI = [
-  "function swapUSDCForIPT(uint256 usdcAmount) external nonReentrant",
-  "function swapIPTForUSDC(uint256 iptAmount) external nonReentrant"
-] as const
-
-const ERC20_ABI = [
-  "function approve(address spender, uint256 amount) public returns (bool)"
-] as const
+import { useCallback } from "react"
+import type { Hash } from "viem"
+import { ERC20_ABI, SWAP_ABI } from "@/lib/web3/abis"
+import { CONTRACT_ADDRESSES, requireAddress } from "@/lib/web3/config"
+import { Web3UserError, ensureAllowance } from "@/lib/web3/tx"
+import { useWeb3Tx } from "./useWeb3Tx"
 
 interface SwapUSDCForIPTParams {
-  swapAddress: string
-  usdcAddress: string
-  usdcAmount: number
+  swapAddress?: string
+  /** USDC amount in base units (6 decimals). */
+  usdcAmount: bigint
 }
 
 interface SwapIPTForUSDCParams {
-  swapAddress: string
-  iptAddress: string
-  iptAmount: number
+  swapAddress?: string
+  /** IPT amount in base units (read `decimals()` - MockIPT uses 18). */
+  iptAmount: bigint
 }
 
 interface ApproveTokenParams {
   tokenAddress: string
   spenderAddress: string
-  amount: number
+  /** Base units. */
+  amount: bigint
 }
 
+/**
+ * MatDAO_Swap fixed-rate secondary market. Each swap approves the input token
+ * only when the allowance is insufficient, waits for the approval to be mined,
+ * then executes the swap and waits for it.
+ */
 export function useIPTSwap() {
-  const { data: hash, writeContract, isPending, error } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash,
-  })
+  const { run, isPending, isSuccess, hash, error } = useWeb3Tx()
 
-  const approveToken = async ({ tokenAddress, spenderAddress, amount }: ApproveTokenParams) => {
-    try {
-      toast.loading("Approving token spend...", { id: "approve-token" })
-      
-      await writeContract({
-        address: tokenAddress as `0x${string}`,
-        abi: ERC20_ABI,
-        functionName: "approve",
-        args: [spenderAddress as `0x${string}`, parseUnits(amount.toString(), 6)],
-      })
-      
-      toast.loading("Transaction confirming...", { id: "approve-token" })
-    } catch (err) {
-      console.error("Error approving token:", err)
-      toast.error("Failed to approve token", { id: "approve-token" })
-      throw err
-    }
-  }
+  const approveToken = useCallback(
+    async ({ tokenAddress, spenderAddress, amount }: ApproveTokenParams): Promise<Hash | null> =>
+      run({ toastId: "approve-token", pending: "Checking allowance...", success: "Token spend approved!" }, (ctx) =>
+        ensureAllowance({
+          publicClient: ctx.publicClient,
+          writeContractAsync: ctx.writeContractAsync,
+          token: requireAddress(tokenAddress, "Token"),
+          owner: ctx.account,
+          spender: requireAddress(spenderAddress, "Spender"),
+          amount,
+          onStatus: ctx.status,
+        }),
+      ),
+    [run],
+  )
 
-  const swapUSDCForIPT = async ({ swapAddress, usdcAddress, usdcAmount }: SwapUSDCForIPTParams) => {
-    try {
-      toast.loading("Swapping USDC for IPT...", { id: "swap-usdc-ipt" })
-      
-      await writeContract({
-        address: swapAddress as `0x${string}`,
-        abi: SWAP_ABI,
-        functionName: "swapUSDCForIPT",
-        args: [parseUnits(usdcAmount.toString(), 6)],
-      })
-      
-      toast.loading("Transaction confirming...", { id: "swap-usdc-ipt" })
-    } catch (err) {
-      console.error("Error swapping USDC for IPT:", err)
-      toast.error("Failed to swap USDC for IPT", { id: "swap-usdc-ipt" })
-      throw err
-    }
-  }
+  const swapUSDCForIPT = useCallback(
+    async ({ swapAddress, usdcAmount }: SwapUSDCForIPTParams): Promise<Hash> =>
+      run({ toastId: "swap-usdc-ipt", pending: "Preparing swap...", success: "Swapped USDC for IPT!" }, async (ctx) => {
+        if (usdcAmount <= 0n) throw new Web3UserError("Enter an amount greater than zero.")
+        const swap = requireAddress(swapAddress ?? CONTRACT_ADDRESSES.SWAP, "Swap contract")
+        const [usdc, quote, liquidity] = await Promise.all([
+          ctx.publicClient.readContract({ address: swap, abi: SWAP_ABI, functionName: "usdcToken" }),
+          ctx.publicClient.readContract({ address: swap, abi: SWAP_ABI, functionName: "getQuoteUSDCForIPT", args: [usdcAmount] }),
+          ctx.publicClient.readContract({ address: swap, abi: SWAP_ABI, functionName: "getLiquidityStatus" }),
+        ])
+        if (quote <= 0n) throw new Web3UserError("Amount too small for the current exchange rate.")
+        if (liquidity[1] < quote) throw new Web3UserError("Not enough IPT liquidity in the swap contract.")
 
-  const swapIPTForUSDC = async ({ swapAddress, iptAddress, iptAmount }: SwapIPTForUSDCParams) => {
-    try {
-      toast.loading("Swapping IPT for USDC...", { id: "swap-ipt-usdc" })
-      
-      await writeContract({
-        address: swapAddress as `0x${string}`,
-        abi: SWAP_ABI,
-        functionName: "swapIPTForUSDC",
-        args: [parseUnits(iptAmount.toString(), 6)],
-      })
-      
-      toast.loading("Transaction confirming...", { id: "swap-ipt-usdc" })
-    } catch (err) {
-      console.error("Error swapping IPT for USDC:", err)
-      toast.error("Failed to swap IPT for USDC", { id: "swap-ipt-usdc" })
-      throw err
-    }
-  }
+        ctx.status("Checking USDC allowance...")
+        await ensureAllowance({ publicClient: ctx.publicClient, writeContractAsync: ctx.writeContractAsync, token: usdc, owner: ctx.account, spender: swap, amount: usdcAmount, onStatus: ctx.status })
 
-  return {
-    approveToken,
-    swapUSDCForIPT,
-    swapIPTForUSDC,
-    isPending: isPending || isConfirming,
-    isSuccess,
-    error,
-    hash,
-  }
+        ctx.status("Confirm the swap in your wallet...")
+        return ctx.writeAndWait({ address: swap, abi: SWAP_ABI, functionName: "swapUSDCForIPT", args: [usdcAmount] })
+      }),
+    [run],
+  )
+
+  const swapIPTForUSDC = useCallback(
+    async ({ swapAddress, iptAmount }: SwapIPTForUSDCParams): Promise<Hash> =>
+      run({ toastId: "swap-ipt-usdc", pending: "Preparing swap...", success: "Swapped IPT for USDC!" }, async (ctx) => {
+        if (iptAmount <= 0n) throw new Web3UserError("Enter an amount greater than zero.")
+        const swap = requireAddress(swapAddress ?? CONTRACT_ADDRESSES.SWAP, "Swap contract")
+        const [ipt, quote, liquidity] = await Promise.all([
+          ctx.publicClient.readContract({ address: swap, abi: SWAP_ABI, functionName: "iptToken" }),
+          ctx.publicClient.readContract({ address: swap, abi: SWAP_ABI, functionName: "getQuoteIPTForUSDC", args: [iptAmount] }),
+          ctx.publicClient.readContract({ address: swap, abi: SWAP_ABI, functionName: "getLiquidityStatus" }),
+        ])
+        if (quote <= 0n) throw new Web3UserError("Amount too small for the current exchange rate.")
+        if (liquidity[0] < quote) throw new Web3UserError("Not enough USDC liquidity in the swap contract.")
+
+        ctx.status("Checking IPT allowance...")
+        await ensureAllowance({ publicClient: ctx.publicClient, writeContractAsync: ctx.writeContractAsync, token: ipt, owner: ctx.account, spender: swap, amount: iptAmount, onStatus: ctx.status })
+
+        ctx.status("Confirm the swap in your wallet...")
+        return ctx.writeAndWait({ address: swap, abi: SWAP_ABI, functionName: "swapIPTForUSDC", args: [iptAmount] })
+      }),
+    [run],
+  )
+
+  return { approveToken, swapUSDCForIPT, swapIPTForUSDC, isPending, isSuccess, hash, error }
 }
+
+/** Re-exported for components that need the generic ERC-20 surface. */
+export { ERC20_ABI }
