@@ -5,17 +5,16 @@ import Link from "next/link"
 import { AlertTriangle, CheckCircle2, FileText, XCircle } from "lucide-react"
 import type { DueDiligenceReport } from "@/lib/ai-studio/types"
 import { getInvestmentTierLabel } from "@/lib/ai-studio/due-diligence"
+import { describeProvenance } from "@/lib/ai-studio/api"
+import { AnalysisModeBanner } from "@/components/ai-studio/AnalysisModeBanner"
+import { DocumentReadCard } from "@/components/ai-studio/DocumentReadCard"
+import { DueDiligenceSection } from "@/components/ai-studio/DueDiligenceSection"
+import { PriorArtSection } from "@/components/ai-studio/PriorArtSection"
 
 const TIER_STYLES = {
   pass: { bg: "bg-emerald-500/10 border-emerald-500/30", text: "text-emerald-300", icon: CheckCircle2 },
   review: { bg: "bg-amber-500/10 border-amber-500/30", text: "text-amber-300", icon: AlertTriangle },
   fail: { bg: "bg-red-500/10 border-red-500/30", text: "text-red-300", icon: XCircle },
-}
-
-const LAYER_LABELS = {
-  extraction: "Layer 1 — Extraction",
-  enrichment: "Layer 2 — Enrichment",
-  integrity: "Integrity Gate",
 }
 
 export default function DueDiligenceResultsPage() {
@@ -55,9 +54,14 @@ export default function DueDiligenceResultsPage() {
           <h1 className="font-headline text-3xl font-bold text-white/95 md:text-4xl">Due Diligence Report</h1>
           <p className="mt-2 flex items-center gap-2 text-sm text-white/55">
             <FileText className="h-4 w-4" />
-            {report.documentName} · {report.wordCount} words
+            {report.documentName} · {report.wordCount.toLocaleString()} words
           </p>
         </div>
+
+        <AnalysisModeBanner
+          provenance={report.provenance}
+          note={`Generated ${new Date(report.timestamp).toLocaleString()}`}
+        />
 
         {report.integrityGateTriggered && (
           <div className="risk-flag-pulse flex gap-3 rounded-xl border border-red-500/40 bg-red-500/10 px-5 py-4">
@@ -65,102 +69,35 @@ export default function DueDiligenceResultsPage() {
             <div>
               <p className="text-sm font-semibold text-red-200">Integrity Gate Triggered (Dim9)</p>
               <p className="mt-1 text-xs text-red-200/70">
-                Research integrity concerns detected. Total score forced to 0 per MatDAO diligence policy.
+                Text extraction failed or research integrity concerns were detected. Total score forced to 0 per MatDAO diligence policy.
               </p>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className={`rounded-xl border p-6 ${tierStyle.bg}`}>
-            <div className="mb-3 flex items-center gap-2">
-              <TierIcon className={`h-5 w-5 ${tierStyle.text}`} />
-              <p className={`text-sm font-semibold ${tierStyle.text}`}>
-                {getInvestmentTierLabel(report.investmentTier)}
-              </p>
-            </div>
-            <p className="font-headline text-5xl font-bold text-white/95">
-              {report.integrityGateTriggered ? "0" : report.totalScore}
-              <span className="text-2xl text-white/40"> / {report.maxTotalScore}</span>
+        <div className={`rounded-xl border p-6 ${tierStyle.bg}`}>
+          <div className="mb-3 flex items-center gap-2">
+            <TierIcon className={`h-5 w-5 ${tierStyle.text}`} />
+            <p className={`text-sm font-semibold ${tierStyle.text}`}>
+              {getInvestmentTierLabel(report.investmentTier)}
             </p>
-            <p className="mt-2 text-xs text-white/50">{scorePct}% weighted investment confidence</p>
           </div>
-
-          <div className="workflow-panel rounded-xl p-6">
-            <p className="mb-3 text-[11px] uppercase tracking-wider text-white/45">Processing Layers</p>
-            <div className="space-y-3 text-sm">
-              <div className="rounded-lg border border-white/10 bg-white/3 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-[#b8fcff]">Layer 1</p>
-                <p className="text-white/70">{report.layers.layer1}</p>
-              </div>
-              <div className="rounded-lg border border-white/10 bg-white/3 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-[#b8fcff]">Layer 2</p>
-                <p className="text-white/70">{report.layers.layer2}</p>
-              </div>
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-wider text-amber-300">Integrity Gate</p>
-                <p className="text-white/70">{report.layers.integrityGate}</p>
-              </div>
-            </div>
-          </div>
+          <p className="font-headline text-5xl font-bold text-white/95">
+            {report.integrityGateTriggered ? "0" : report.totalScore}
+            <span className="text-2xl text-white/40"> / {report.maxTotalScore}</span>
+          </p>
+          <p className="mt-2 text-xs text-white/50">{scorePct}% · {report.scoreSource ?? describeProvenance(report.provenance)}</p>
         </div>
 
-        <div className="workflow-panel rounded-2xl p-6">
-          <h2 className="font-headline mb-4 text-lg font-semibold">9-Dimension Scorecard</h2>
-          <div className="space-y-3">
-            {report.dimensions.map((dim) => {
-              const pct = (dim.score / dim.maxScore) * 100
-              const isIntegrity = dim.id === 9
-              return (
-                <div
-                  key={dim.id}
-                  className={`rounded-xl border p-4 ${
-                    isIntegrity && dim.score <= 1
-                      ? "border-red-500/30 bg-red-500/5"
-                      : "border-white/10 bg-white/2"
-                  }`}
-                >
-                  <div className="mb-2 flex items-start justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] text-white/30">Dim{dim.id}</span>
-                        <p className="text-sm font-medium text-white/90">{dim.name}</p>
-                        <span className="rounded-full border border-white/10 px-2 py-0.5 text-[9px] uppercase tracking-wider text-white/40">
-                          {LAYER_LABELS[dim.layer]}
-                        </span>
-                      </div>
-                      <ul className="mt-1.5 space-y-0.5">
-                        {dim.evidence.map((e, i) => (
-                          <li key={i} className="text-xs text-white/45">· {e}</li>
-                        ))}
-                      </ul>
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="font-mono text-lg font-bold text-[#6efcff]">
-                        {dim.score}/{dim.maxScore}
-                      </p>
-                      <p className="text-[10px] text-white/40">weight {dim.weight}%</p>
-                    </div>
-                  </div>
-                  <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
-                    <div
-                      className={`h-full rounded-full transition-all ${
-                        isIntegrity && dim.score <= 1 ? "bg-red-400" : "bg-[#6efcff]"
-                      }`}
-                      style={{ width: `${pct}%` }}
-                    />
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </div>
+        <DocumentReadCard profile={report.documentProfile} />
+
+        <DueDiligenceSection dd={report} />
+
+        <PriorArtSection originality={report.originality} />
 
         <div className="rounded-xl border border-white/10 bg-black/30 px-5 py-4 font-mono text-xs text-white/40">
-          Report generated: {new Date(report.timestamp).toLocaleString()} ·{" "}
-          {report.analysisSource === "engine"
-            ? "Scored via matdao-ip-engine (OpenAI embeddings + FTO pipeline)"
-            : "Client-side prototype scorer (backend was offline)"}
+          Report generated: {new Date(report.timestamp).toLocaleString()} · {describeProvenance(report.provenance)}
+          {report.analysisSource === "client" ? " · client-side prototype scorer (deprecated)" : ""}
         </div>
 
         <Link

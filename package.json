@@ -6,7 +6,12 @@
     "dev": "next dev --turbo",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "hh:compile": "HARDHAT_TSCONFIG=tsconfig.hardhat.json hardhat compile",
+    "hh:test": "HARDHAT_TSCONFIG=tsconfig.hardhat.json hardhat test",
+    "hh:deploy:local": "HARDHAT_TSCONFIG=tsconfig.hardhat.json hardhat run scripts/deployAndSeed.ts --network hardhat",
+    "hh:deploy:sepolia": "HARDHAT_TSCONFIG=tsconfig.hardhat.json hardhat run scripts/deployAndSeed.ts --network sepolia",
+    "hh:sync-abis": "HARDHAT_TSCONFIG=tsconfig.hardhat.json hardhat run scripts/syncAbis.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -61,6 +66,7 @@
     "react-hot-toast": "^2.6.0",
     "react-resizable-panels": "^2.1.7",
     "recharts": "^2.15.0",
+    "resend": "^4.8.0",
     "sonner": "^1.7.1",
     "tailwind-merge": "^2.5.5",
     "tailwindcss-animate": "^1.0.7",

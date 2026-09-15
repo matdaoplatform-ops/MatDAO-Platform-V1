@@ -2,13 +2,19 @@
 
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { AlertTriangle, BookOpen, Lock, PieChart, TrendingUp } from "lucide-react"
+import { AlertTriangle, Lock, PieChart, TrendingUp } from "lucide-react"
 import { AuditableValue } from "@/components/ai-studio/AuditableValue"
+import { AnalysisModeBanner } from "@/components/ai-studio/AnalysisModeBanner"
+import { DocumentReadCard } from "@/components/ai-studio/DocumentReadCard"
+import { FtoOverlapTable } from "@/components/ai-studio/FtoOverlapTable"
+import { PriorArtSection } from "@/components/ai-studio/PriorArtSection"
+import { ValuationNotice, isValuationUnavailable } from "@/components/ai-studio/ValuationNotice"
 import type { AnalysisReport, HitlModifiers } from "@/lib/ai-studio/types"
 import {
   computeAdjustedValuation,
   computeTokenizationBreakdown,
   formatUsd,
+  provenanceFromReport,
 } from "@/lib/ai-studio/api"
 
 function ModifierSlider({
@@ -133,6 +139,8 @@ export default function ValuationResultsPage() {
   }
 
   const { classification, originality, fto, valuation, document_profile } = report
+  const valuationUnavailable = isValuationUnavailable(valuation)
+  const provenance = provenanceFromReport(report)
 
   return (
     <div className="relative px-5 py-12 sm:px-6 md:py-16">
@@ -152,12 +160,14 @@ export default function ValuationResultsPage() {
           </p>
         </div>
 
-        {document_profile && (
-          <div className="flex items-start gap-3 rounded-xl border border-white/12 bg-white/3 px-4 py-3">
-            <BookOpen className="mt-0.5 h-4 w-4 shrink-0 text-[#6efcff]" />
-            <p className="text-xs leading-relaxed text-white/55">{document_profile.note}</p>
-          </div>
-        )}
+        <AnalysisModeBanner
+          provenance={provenance}
+          note={`Report ${report.report_metadata.report_id}`}
+        />
+
+        <ValuationNotice valuation={valuation} />
+
+        <DocumentReadCard profile={document_profile} stats={report.document_stats} />
 
         {fto.expert_consultation_required && (
           <div className="risk-flag-pulse flex gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-5 py-4">
@@ -184,13 +194,39 @@ export default function ValuationResultsPage() {
             <p className="text-2xl font-bold text-amber-300">−{(fto.r_fto * 100).toFixed(1)}%</p>
             <p className="mt-1 text-xs text-white/45">{fto.flagged_patent_count} flagged · {fto.analysis_source}</p>
           </div>
-          <div className="rounded-xl border border-white/12 bg-white/3 p-5">
-            <p className="mb-1 text-[11px] uppercase tracking-wider text-white/45">Listed Tokenization Value</p>
-            <p className="text-2xl font-bold text-purple-300">{formatUsd(tokenization.listedTokenizationValue)}</p>
-            <p className="mt-1 text-xs text-white/45">{tokenizationFraction}% of {formatUsd(adjustedValuation)} full value</p>
-          </div>
+          {valuationUnavailable ? (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-5">
+              <p className="mb-1 text-[11px] uppercase tracking-wider text-white/45">Listed Tokenization Value</p>
+              <p className="text-lg font-bold text-amber-200">Under revision</p>
+              <p className="mt-1 text-xs text-white/45">
+                {originality.assessment?.novelty_score != null
+                  ? `Novelty ${originality.assessment.novelty_score}/100 · ${originality.assessment.verdict ?? ""}`
+                  : "No USD figure until the valuation model ships"}
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-white/12 bg-white/3 p-5">
+              <p className="mb-1 text-[11px] uppercase tracking-wider text-white/45">Listed Tokenization Value</p>
+              <p className="text-2xl font-bold text-purple-300">{formatUsd(tokenization.listedTokenizationValue)}</p>
+              <p className="mt-1 text-xs text-white/45">{tokenizationFraction}% of {formatUsd(adjustedValuation)} full value</p>
+            </div>
+          )}
         </div>
 
+        <PriorArtSection originality={originality} />
+
+        {valuationUnavailable ? (
+          <div className="workflow-panel rounded-2xl p-6">
+            <div className="mb-2 flex items-center gap-2">
+              <Lock className="h-4 w-4 text-amber-300" />
+              <h2 className="font-headline text-lg font-semibold">Valuation, HITL modifiers &amp; tokenization split</h2>
+            </div>
+            <p className="text-sm text-white/60">
+              Hidden while the valuation methodology is being rebuilt — the engine returned <code className="font-mono text-xs">valuation_available: false</code>
+              {valuation.valuation_status ? <> (<span className="font-mono text-xs">{valuation.valuation_status}</span>)</> : null}. Originality, prior art and FTO results above are unaffected.
+            </p>
+          </div>
+        ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <div className="workflow-panel rounded-2xl p-6">
             <div className="mb-4 flex items-center gap-2">
@@ -241,7 +277,9 @@ export default function ValuationResultsPage() {
             </div>
           </div>
         </div>
+        )}
 
+        {!valuationUnavailable && (
         <div className="workflow-panel rounded-2xl p-6">
           <h2 className="font-headline mb-1 text-lg font-semibold">Auditable Pricing Trail</h2>
           <p className="mb-4 text-xs text-white/45">
@@ -253,38 +291,15 @@ export default function ValuationResultsPage() {
             ))}
           </div>
         </div>
+        )}
 
         <div className="workflow-panel rounded-2xl p-6">
-          <h2 className="font-headline mb-4 text-lg font-semibold">Top Patent Matches & FTO Overlap</h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-white/45">
-                  <th className="pb-3 pr-4">Patent</th>
-                  <th className="pb-3 pr-4">Similarity</th>
-                  <th className="pb-3 pr-4">Overlap</th>
-                  <th className="pb-3">Flagged Elements</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fto.overlap_matrix.slice(0, 5).map((row) => (
-                  <tr key={row.patent_id} className="border-b border-white/5">
-                    <td className="py-3 pr-4">
-                      <p className="font-mono text-xs text-white/80">{row.patent_id}</p>
-                      <p className="max-w-[200px] truncate text-xs text-white/45">{row.title}</p>
-                    </td>
-                    <td className="py-3 pr-4 text-white/70">{(row.cosine_similarity * 100).toFixed(1)}%</td>
-                    <td className="py-3 pr-4">
-                      <span className={row.structural_overlap ? "text-amber-300" : "text-white/60"}>
-                        {(row.overlap_ratio * 100).toFixed(1)}%{row.structural_overlap && " ⚠"}
-                      </span>
-                    </td>
-                    <td className="py-3 text-xs text-white/50">{row.flagged_elements.slice(0, 4).join(", ") || "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <h2 className="font-headline mb-1 text-lg font-semibold">Top Patent Matches &amp; FTO Overlap</h2>
+          <p className="mb-4 text-xs text-white/45">
+            {fto.analysis_source.replace(/_/g, " ")} · risk tier {fto.risk_tier_pct}% · {fto.flagged_patent_count} flagged
+            {fto.confidence ? ` · confidence ${fto.confidence.level}` : ""}
+          </p>
+          <FtoOverlapTable rows={fto.overlap_matrix} limit={8} />
         </div>
 
         <div className="rounded-xl border border-white/10 bg-black/30 px-5 py-4 font-mono text-xs text-white/40">

@@ -19,8 +19,11 @@ contract SwapRouter is Ownable {
     }
 
     // Fixed exchange rate: 1 USDC = 0.0003 ETH (approximate)
-    uint256 public constant ETH_PER_USDC = 3e14; // 0.0003 ETH in wei
-    uint256 public constant USDC_PER_ETH = 3333; // 3333 USDC per ETH
+    uint256 public constant ETH_PER_USDC = 3e14; // 0.0003 ETH in wei, per 1 whole USDC
+    uint256 public constant USDC_PER_ETH = 3333; // whole USDC per 1 ETH
+    // USDC (and MockUSDC) use 6 decimals. All USDC amounts handled by this
+    // contract are in base units (1 USDC = 1e6).
+    uint256 public constant USDC_DECIMALS_SCALE = 1e6;
 
     // Events
     event Swapped(
@@ -38,7 +41,9 @@ contract SwapRouter is Ownable {
     function swapETHForUSDC(address usdcAddress) external payable {
         require(msg.value > 0, "Must send ETH");
         
-        uint256 usdcAmount = (msg.value * USDC_PER_ETH) / 1e18;
+        // wei * (whole USDC / ETH) * 1e6 / 1e18 -> USDC base units (6 decimals)
+        uint256 usdcAmount = (msg.value * USDC_PER_ETH * USDC_DECIMALS_SCALE) / 1e18;
+        require(usdcAmount > 0, "Amount too small");
         
         IERC20 usdc = IERC20(usdcAddress);
         require(usdc.balanceOf(address(this)) >= usdcAmount, "Insufficient USDC liquidity");
@@ -59,7 +64,9 @@ contract SwapRouter is Ownable {
         IERC20 usdc = IERC20(usdcAddress);
         usdc.safeTransferFrom(msg.sender, address(this), usdcAmount);
         
-        uint256 ethAmount = (usdcAmount * ETH_PER_USDC) / 1e6;
+        // USDC base units * wei-per-whole-USDC / 1e6 -> wei
+        uint256 ethAmount = (usdcAmount * ETH_PER_USDC) / USDC_DECIMALS_SCALE;
+        require(ethAmount > 0, "Amount too small");
         require(address(this).balance >= ethAmount, "Insufficient ETH liquidity");
         
         payable(msg.sender).transfer(ethAmount);
@@ -102,14 +109,14 @@ contract SwapRouter is Ownable {
      * @dev Get quote for ETH to USDC swap
      */
     function getQuoteETHForUSDC(uint256 ethAmount) external pure returns (uint256 usdcAmount) {
-        return (ethAmount * USDC_PER_ETH) / 1e18;
+        return (ethAmount * USDC_PER_ETH * USDC_DECIMALS_SCALE) / 1e18;
     }
 
     /**
      * @dev Get quote for USDC to ETH swap
      */
     function getQuoteUSDCForETH(uint256 usdcAmount) external pure returns (uint256 ethAmount) {
-        return (usdcAmount * ETH_PER_USDC) / 1e6;
+        return (usdcAmount * ETH_PER_USDC) / USDC_DECIMALS_SCALE;
     }
 
     // Allow contract to receive ETH

@@ -1,4 +1,12 @@
-import type { AnalysisReport, AuditEntry, HitlModifiers, TokenizationBreakdown } from "./types"
+import type {
+  AnalysisProvenance,
+  AnalysisReport,
+  AuditEntry,
+  BackendCapabilities,
+  HitlModifiers,
+  PriorArtResponse,
+  TokenizationBreakdown,
+} from "./types"
 
 export interface BackendHealth {
   reachable: boolean
@@ -6,6 +14,7 @@ export interface BackendHealth {
   index_ready?: boolean
   patent_corpus_size?: number
   embedding_model?: string
+  embedding_provider?: string
   backend_url?: string
   detail?: string
 }
@@ -19,9 +28,51 @@ export async function checkBackendHealth(): Promise<BackendHealth> {
   }
 }
 
-export async function analyzeDocument(file: File): Promise<AnalysisReport> {
+export async function fetchBackendCapabilities(): Promise<BackendCapabilities | null> {
+  try {
+    const response = await fetch("/api/ai-studio/capabilities")
+    if (!response.ok) return null
+    return response.json()
+  } catch {
+    return null
+  }
+}
+
+/** Surface the backend's `detail` (FastAPI error shape) or a status-coded fallback. */
+async function readError(response: Response, fallback: string): Promise<string> {
+  const body = await response.json().catch(() => null)
+  const detail = body && typeof body === "object" ? (body as { detail?: unknown }).detail : null
+  if (typeof detail === "string" && detail.trim()) return detail
+  if (Array.isArray(detail)) {
+    // FastAPI validation errors: [{loc, msg, type}]
+    const msgs = detail.map((d) => (d && typeof d === "object" && "msg" in d ? String((d as { msg: unknown }).msg) : "")).filter(Boolean)
+    if (msgs.length) return msgs.join("; ")
+  }
+  return `${fallback} (HTTP ${response.status})`
+}
+
+export interface AnalyzeOptions {
+  title?: string
+  author?: string
+  category?: string
+  /** 1-9. Sent as `self_reported_trl`; the engine reports the delta against its own evidence-based estimate. */
+  selfReportedTrl?: number | null
+  /** Proposal, pitch deck, financials, pasted abstract … forwarded as `supporting_files`. */
+  supportingFiles?: File[]
+}
+
+export async function analyzeDocument(file: File, options: AnalyzeOptions = {}): Promise<AnalysisReport> {
   const formData = new FormData()
-  formData.append("file", file)
+  formData.append("file", file, file.name)
+  if (options.title?.trim()) formData.append("title", options.title.trim())
+  if (options.author?.trim()) formData.append("author", options.author.trim())
+  if (options.category?.trim()) formData.append("category", options.category.trim())
+  if (options.selfReportedTrl != null && Number.isFinite(options.selfReportedTrl)) {
+    formData.append("self_reported_trl", String(options.selfReportedTrl))
+  }
+  for (const extra of options.supportingFiles ?? []) {
+    if (extra && extra.size > 0) formData.append("supporting_files", extra, extra.name)
+  }
 
   const response = await fetch("/api/ai-studio/analyze", {
     method: "POST",
@@ -29,11 +80,82 @@ export async function analyzeDocument(file: File): Promise<AnalysisReport> {
   })
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: "Analysis failed" }))
-    throw new Error(error.detail ?? "Analysis failed")
+    throw new Error(await readError(response, "Analysis failed"))
   }
 
   return response.json()
+}
+
+export async function searchPriorArt(input: {
+  title: string
+  abstract: string
+  claims?: string[] | string
+  methods?: string
+  keywords?: string[]
+  assess?: boolean
+}): Promise<PriorArtResponse> {
+  const response = await fetch("/api/ai-studio/prior-art", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  })
+  if (!response.ok) {
+    throw new Error(await readError(response, "Prior-art search failed"))
+  }
+  return response.json()
+}
+
+export interface ChatTurn {
+  role: "user" | "assistant"
+  content: string
+}
+
+export interface ChatResponse {
+  available: boolean
+  reply?: string
+  provider?: string | null
+  model?: string | null
+  detail?: string
+}
+
+/** Ask the report-grounded assistant. Returns `available:false` (no error) when no server-side LLM key exists. */
+export async function askReportAssistant(
+  report: unknown,
+  messages: ChatTurn[],
+): Promise<ChatResponse> {
+  const response = await fetch("/api/ai-studio/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ report, messages }),
+  })
+  const body = (await response.json().catch(() => ({}))) as ChatResponse & { detail?: string }
+  if (!response.ok && response.status !== 503) {
+    throw new Error(body.detail ?? `Chat request failed (HTTP ${response.status})`)
+  }
+  return body
+}
+
+/** Pull the provenance stamp off a raw engine report. Robust to old reports that predate these fields. */
+export function provenanceFromReport(report: Partial<AnalysisReport> | null | undefined): AnalysisProvenance {
+  const trlSource = report?.trl_evaluation?.analysis_source ?? ""
+  const inferredMode: AnalysisProvenance["analysisMode"] =
+    report?.analysis_mode ?? (trlSource.startsWith("llm") ? "llm" : "rule_based_fallback")
+  return {
+    analysisMode: inferredMode,
+    llmProvider: report?.llm_provider ?? report?.trl_evaluation?.llm_provider ?? null,
+    llmModel: report?.llm_model ?? report?.trl_evaluation?.llm_model ?? null,
+    warnings: Array.isArray(report?.warnings) ? report!.warnings!.filter((w) => typeof w === "string") : [],
+  }
+}
+
+/** "LLM · deepseek / deepseek-chat" or "Rule-based fallback (no LLM key)". */
+export function describeProvenance(p: AnalysisProvenance | undefined | null): string {
+  if (!p) return "Unknown analysis mode"
+  if (p.analysisMode === "llm") {
+    const model = [p.llmProvider, p.llmModel].filter(Boolean).join(" / ")
+    return model ? `LLM · ${model}` : "LLM"
+  }
+  return "Rule-based fallback (no LLM key configured)"
 }
 
 export function formatUsd(value: number): string {

@@ -1,5 +1,9 @@
+import { notFound } from "next/navigation"
+import { createAnonServerClient } from "@/lib/supabase/server"
+import type { KeyValue, ApprovedProjectRow } from "@/lib/supabase/client"
 import { ProjectDataRoom } from "@/components/project/ProjectDataRoom"
 import { LegalRegistryPanel } from "@/components/project/LegalRegistryPanel"
+import { FundingPanel } from "@/components/project/FundingPanel"
 import { ProjectDetailClient } from "@/components/project/project-detail-client"
 
 const projectData: Record<
@@ -24,6 +28,8 @@ const projectData: Record<
     tokenAddress?: string
     iptAddress?: string
     ipnftAddress?: string
+    /** Minted IP-NFT token id (IDs start at 1; undefined = not minted yet). */
+    ipnftTokenId?: number
     swapAddress?: string
     isRaising?: boolean
     raisedAmount?: number
@@ -203,7 +209,93 @@ const projectData: Record<
   },
 }
 
-function getProject(id: string) {
+type ShowcaseProject = (typeof projectData)[string]
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function kv(list: KeyValue[] | null | undefined, key: string): string {
+  return list?.find((d) => d.key === key)?.value?.trim() || ""
+}
+
+/** Map an approved Supabase row onto the showcase page shape. */
+function fromRow(row: ApprovedProjectRow): ShowcaseProject {
+  const researcherName = row.researcher_name
+  const field = row.working_field || kv(row.description, "workingField")
+  const institution = row.institution || kv(row.description, "institution")
+  const paragraphs = [
+    kv(row.description, "targetAudience") && `Target audience: ${kv(row.description, "targetAudience")}`,
+    kv(row.description, "painPoints") && `Problem addressed: ${kv(row.description, "painPoints")}`,
+    kv(row.description, "marketSize") && `Market size: ${kv(row.description, "marketSize")}`,
+    kv(row.technical_specs, "businessModel") && `Business model: ${kv(row.technical_specs, "businessModel")}`,
+  ].filter((p): p is string => Boolean(p))
+  const timelineFromForm = kv(row.technical_specs, "timeline")
+  const milestonesFromForm = kv(row.technical_specs, "milestones")
+  const developmentTimeline =
+    Array.isArray(row.development_timeline) && row.development_timeline.length > 0
+      ? row.development_timeline.map((m, i) => ({
+          phase: String((m as Record<string, unknown>).label ?? (m as Record<string, unknown>).phase ?? `Milestone ${i + 1}`),
+          timeline: String((m as Record<string, unknown>).duration ?? (m as Record<string, unknown>).timeline ?? ""),
+          status: i === 0 ? "In Progress" : "Planned",
+        }))
+      : milestonesFromForm
+        ? milestonesFromForm.split(/,|\n/).map((m, i) => ({ phase: m.trim(), timeline: i === 0 ? timelineFromForm : "", status: i === 0 ? "In Progress" : "Planned" })).filter((m) => m.phase)
+        : [{ phase: "Research", timeline: timelineFromForm || "Ongoing", status: "In Progress" }]
+  const ipType = row.ip_status?.type || kv(row.description, "license") || "Under Evaluation"
+  return {
+    title: row.title,
+    phase: field ? `${field} · TRL ${row.trl}` : `TRL ${row.trl}`,
+    researcher: researcherName ? `${researcherName}${institution ? ` (${institution})` : ""}` : institution || "MatDAO researcher",
+    funding: row.funding_goal,
+    trl: row.trl,
+    isRaising: row.is_raising,
+    raisedAmount: row.funding_raised ?? 0,
+    targetAmount: row.funding_goal,
+    description: paragraphs.length > 0 ? paragraphs : ["This project was submitted to and approved by the MatDAO review team."],
+    advantages: row.competitive_advantage?.length
+      ? row.competitive_advantage.map((text) => ({ title: "Advantage", text }))
+      : [{ title: "Reviewed submission", text: "Approved by the MatDAO TTO review process." }],
+    technicalSpecs: [
+      { label: "TRL Level", value: String(row.trl) },
+      ...(field ? [{ label: "Field", value: field }] : []),
+      ...(institution ? [{ label: "Institution", value: institution }] : []),
+      ...(kv(row.description, "partnerNeeded") ? [{ label: "Partner needed", value: kv(row.description, "partnerNeeded") }] : []),
+      ...(kv(row.description, "fundingNeeded") ? [{ label: "Funding needed", value: kv(row.description, "fundingNeeded") }] : []),
+    ],
+    marketApplications: row.market_applications?.length
+      ? row.market_applications
+      : [kv(row.description, "targetAudience") || "Commercial applications under evaluation"],
+    developmentTimeline,
+    team: row.team?.length ? row.team : [{ name: researcherName || "Research team", role: "Principal Investigator", institution: institution || "—" }],
+    riskFactors: row.risk_factors?.length ? row.risk_factors : ["Early stage research with technical uncertainties"],
+    competitiveAdvantage: row.competitive_advantage?.length ? row.competitive_advantage : ["Novel approach to material science challenges"],
+    ipStatus: {
+      type: ipType,
+      status: row.ip_status?.status === "minted" ? "Minted" : row.ip_status?.status || "Pending",
+      details: row.ip_status?.status === "minted"
+        ? `IP-NFT minted${row.ip_status.tokenId ? ` (token #${row.ip_status.tokenId})` : ""}`
+        : row.ip_status?.details || "IP strategy being developed",
+    },
+    milestones: [],
+    ipnftAddress: row.ip_status?.status === "minted" ? process.env.NEXT_PUBLIC_MATDAO_IPNFT_ADDRESS : undefined,
+    ipnftTokenId: row.ip_status?.status === "minted" && row.ip_status.tokenId ? Number(row.ip_status.tokenId) : undefined,
+  }
+}
+
+async function loadLiveProject(id: string): Promise<ShowcaseProject | null> {
+  const supabase = createAnonServerClient()
+  if (!supabase) return null
+  // `approved_projects` only contains status = 'approved' rows and is readable by anon.
+  const { data, error } = await supabase.from("approved_projects").select("*").eq("id", id).maybeSingle()
+  if (error || !data) return null
+  return fromRow(data)
+}
+
+async function getProject(id: string): Promise<ShowcaseProject> {
+  if (UUID_RE.test(id)) {
+    const live = await loadLiveProject(id)
+    if (!live) notFound()
+    return live
+  }
   return (
     projectData[id] || {
       title: id
@@ -262,7 +354,7 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const project = getProject(id)
+  const project = await getProject(id)
 
   return (
     <div className="flex flex-col">
@@ -510,15 +602,12 @@ export default async function ProjectDetailPage({
       {project.milestones && project.milestones.length > 0 && (
         <section className="py-8">
           <div className="mx-auto max-w-4xl px-4">
-            {/* FundingPanel component will be added here after fixing imports */}
-            <div className="rounded-xl border border-border/60 bg-card p-6">
-              <h2 className="mb-6 flex items-center gap-2 text-lg font-semibold text-foreground">
-                Funding & Milestones
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                Funding and milestone management features will be available after smart contract deployment.
-              </p>
-            </div>
+            <FundingPanel
+              projectId={id}
+              milestones={project.milestones}
+              escrowAddress={project.escrowAddress}
+              tokenAddress={project.tokenAddress}
+            />
           </div>
         </section>
       )}
@@ -539,9 +628,9 @@ export default async function ProjectDetailPage({
       {project.ipnftAddress && (
         <section className="py-8">
           <div className="mx-auto max-w-4xl px-4">
-            <LegalRegistryPanel 
+            <LegalRegistryPanel
               ipnftAddress={project.ipnftAddress}
-              tokenId={0}
+              tokenId={project.ipnftTokenId ?? 0}
             />
           </div>
         </section>

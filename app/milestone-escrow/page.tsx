@@ -1,7 +1,9 @@
 "use client"
 
 import { useState } from "react"
-import { Shield, Lock, DollarSign, CheckCircle, Clock, AlertCircle, Sparkles, ChevronRight, Wallet, FileText, TrendingUp } from "lucide-react"
+import { Shield, Lock, DollarSign, CheckCircle, Clock, AlertCircle, Sparkles, ChevronRight, Wallet, FileText, TrendingUp, Loader2 } from "lucide-react"
+import { useApproveMilestone } from "@/lib/web3/hooks/useApproveMilestone"
+import { CONTRACT_ADDRESSES, explorerAddressUrl } from "@/lib/web3/config"
 
 interface Milestone {
   id: string
@@ -121,6 +123,26 @@ const mockVaults: EscrowVault[] = [
 export default function MilestoneEscrowPage() {
   const [selectedVault, setSelectedVault] = useState<EscrowVault | null>(mockVaults[0])
   const [activeTab, setActiveTab] = useState<"overview" | "milestones" | "transactions">("overview")
+  const [releasingId, setReleasingId] = useState<string | null>(null)
+
+  // The vaults above are mock data. "Release Funds" is wired to the deployed
+  // MatDAO_Escrow (NEXT_PUBLIC_MATDAO_ESCROW_ADDRESS) when configured; the
+  // milestone index in the mock list maps to the on-chain milestone id.
+  const escrowAddress = CONTRACT_ADDRESSES.ESCROW
+  const escrowConfigured = Boolean(escrowAddress)
+  const { approveMilestone, isPending: isReleasing } = useApproveMilestone()
+
+  const handleRelease = async (milestoneIndex: number, milestoneId: string) => {
+    if (!escrowAddress) return
+    setReleasingId(milestoneId)
+    try {
+      await approveMilestone({ milestoneId: milestoneIndex, escrowAddress })
+    } catch {
+      // error toast shown by the hook
+    } finally {
+      setReleasingId(null)
+    }
+  }
 
   const getStatusColor = (status: Milestone["status"]) => {
     switch (status) {
@@ -346,9 +368,22 @@ export default function MilestoneEscrowPage() {
                             <span>Due: {milestone.dueDate}</span>
                           </div>
                           {milestone.status === "verified" && (
-                            <button className="flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors">
-                              <Sparkles className="h-3 w-3" />
-                              Release Funds
+                            <button
+                              onClick={() => handleRelease(index, milestone.id)}
+                              disabled={!escrowConfigured || isReleasing}
+                              title={
+                                escrowConfigured
+                                  ? "Approve this milestone on the MatDAO_Escrow contract (admin wallet required)"
+                                  : "Escrow contract not configured - set NEXT_PUBLIC_MATDAO_ESCROW_ADDRESS"
+                              }
+                              className="flex items-center gap-2 text-blue-600 hover:text-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {isReleasing && releasingId === milestone.id ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                              ) : (
+                                <Sparkles className="h-3 w-3" />
+                              )}
+                              {isReleasing && releasingId === milestone.id ? "Releasing..." : "Release Funds"}
                               <ChevronRight className="h-3 w-3" />
                             </button>
                           )}
@@ -366,10 +401,26 @@ export default function MilestoneEscrowPage() {
                       <p className="text-sm text-gray-600 mb-4">
                         View all fund releases and escrow transactions on-chain
                       </p>
-                      <button className="flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 hover:bg-blue-100 transition-all">
-                        <FileText className="h-4 w-4" />
-                        View on Block Explorer
-                      </button>
+                      {escrowConfigured ? (
+                        <a
+                          href={explorerAddressUrl(escrowAddress as string)}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 hover:bg-blue-100 transition-all"
+                        >
+                          <FileText className="h-4 w-4" />
+                          View on Block Explorer
+                        </a>
+                      ) : (
+                        <button
+                          disabled
+                          title="Escrow contract not configured - set NEXT_PUBLIC_MATDAO_ESCROW_ADDRESS"
+                          className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 opacity-50 cursor-not-allowed"
+                        >
+                          <FileText className="h-4 w-4" />
+                          View on Block Explorer
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import Link from "next/link"
 import {
   Search,
@@ -16,6 +16,7 @@ import {
 } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 import { loadUserData } from "@/lib/trl-services/storage"
+import { supabase } from "@/lib/supabase/client"
 import { PartnersCarousel } from "@/components/partners-carousel"
 
 /* ------------------------------------------------------------------ */
@@ -47,9 +48,13 @@ interface Project {
   change24h: number
   image: string
   researcherId?: string
+  /** True for rows loaded from Supabase (approved submissions). */
+  live?: boolean
 }
 
-const projects: Project[] = [
+const FALLBACK_IMAGE = "https://6ibpna7m8edwyvzk.public.blob.vercel-storage.com/graphene-what-is-it-and-what-is-it-used-for-393831-640x360.jpg"
+
+const showcaseProjects: Project[] = [
   {
     id: "000001",
     slug: "cnt-power-cable",
@@ -186,13 +191,55 @@ export default function ProjectMarketPage() {
   const [sortField, setSortField] = useState<SortField>("fundingRaised")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
   const [platformData, setPlatformData] = useState<any>(null)
+  const [liveProjects, setLiveProjects] = useState<Project[]>([])
 
   // Load user data for researchers
-  useState(() => {
+  useEffect(() => {
     if (user && user.role === "researcher") {
       setPlatformData(loadUserData(user.id))
     }
-  })
+  }, [user])
+
+  // Approved submissions come from the public `approved_projects` view (which
+  // also exposes the researcher's display name); merge with the showcase set.
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from("approved_projects")
+      .select("id, slug, title, trl, phase, funding_goal, funding_raised, institution, working_field, created_at, researcher_name")
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return
+        setLiveProjects(
+          data.map((p) => ({
+            id: p.id,
+            slug: p.id,
+            name: p.title,
+            ticker: p.title
+              .split(/\s+/)
+              .map((w) => w[0])
+              .join("")
+              .toUpperCase()
+              .slice(0, 4),
+            category: "Initiative" as Category,
+            trl: p.trl,
+            phase: p.working_field || p.phase || "Submitted",
+            fundingGoal: p.funding_goal,
+            fundingRaised: p.funding_raised ?? 0,
+            researcher: p.researcher_name || "MatDAO researcher",
+            institution: p.institution || "—",
+            change24h: 0,
+            image: FALLBACK_IMAGE,
+            live: true,
+          })),
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const projects = useMemo(() => [...liveProjects, ...showcaseProjects], [liveProjects])
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -240,14 +287,14 @@ export default function ProjectMarketPage() {
         : (bVal as number) - (aVal as number)
     })
     return list
-  }, [searchQuery, activeCategory, sortField, sortDir])
+  }, [projects, searchQuery, activeCategory, sortField, sortDir])
 
-  // Get researcher's projects from assessments
+  // Researcher's own live projects, plus showcase entries matching their assessments
   const researcherProjects = useMemo(() => {
-    if (!user || user.role !== "researcher" || !platformData) return []
-    const assessmentTitles = platformData.assessments?.map((a: any) => a.title) || []
-    return projects.filter((p) => assessmentTitles.includes(p.name))
-  }, [user, platformData])
+    if (!user || user.role !== "researcher") return []
+    const assessmentTitles: string[] = platformData?.assessments?.map((a: any) => a.title) || []
+    return projects.filter((p) => p.researcherId === user.id || assessmentTitles.includes(p.name))
+  }, [user, platformData, projects])
 
   return (
     <div className="flex flex-col">
@@ -456,6 +503,11 @@ export default function ProjectMarketPage() {
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">
                         {project.name}
+                        {project.live && (
+                          <span className="ml-2 rounded-full border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-accent">
+                            Live
+                          </span>
+                        )}
                       </p>
                       <p className="truncate text-xs text-muted-foreground">
                         {project.ticker} &middot; {project.researcher}

@@ -75,10 +75,7 @@ PINATA_GATEWAY=your-gateway.mypinata.cloud
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-4. Set up Supabase database
-- Create a new Supabase project
-- Run the SQL schema from `supabase-schema.sql` in the Supabase SQL editor
-- Enable Row Level Security (included in schema)
+4. Set up Supabase database — see [Apply DB migration + set env](#apply-db-migration--set-env)
 
 5. Deploy smart contracts (optional for demo)
 - Use Hardhat or Foundry to deploy the contracts in the `contracts/` directory
@@ -101,7 +98,45 @@ The application uses the following tables:
 - **verification_tasks**: Milestone verification submissions
 - **submitted_milestones**: User-submitted project milestones
 
-See `supabase-schema.sql` for the complete schema.
+- **notifications**: In-app notifications (staff review queue, researcher decisions)
+- **project_reviews**: Audit trail of staff decisions on submissions
+- Storage bucket **project-documents** (private; keys are `<user id>/<project id>/<kind>-<file>`)
+- View **approved_projects** (security-definer view, readable by anon): approved projects plus the researcher's display name — the only way public pages read project data
+
+See `supabase-schema.sql` (base tables) and `supabase/migrations/0001_platform_fixes.sql` (functions, triggers, RLS policies, extra tables, storage bucket).
+
+## Apply DB migration + set env
+
+Both SQL files are idempotent — re-running them is safe.
+
+1. **Fresh Supabase project**: open the SQL editor and run `supabase-schema.sql`, then `supabase/migrations/0001_platform_fixes.sql`.
+2. **Existing project** (already created from the old schema): run only `supabase/migrations/0001_platform_fixes.sql`. It:
+   - replaces the recursive RLS policies (`42P17 infinite recursion`) with a `public.is_staff()` helper,
+   - installs the `handle_new_user` trigger so every new `auth.users` row gets a `profiles` row (and backfills users that never got one),
+   - adds the FK `profiles.id → auth.users(id)` (skipped with a NOTICE if orphan profile rows exist — a cleanup statement is in the file's comments),
+   - adds the review workflow columns to `projects` (`status`, `review_notes`, `reviewed_by`, `reviewed_at`, `submitter_email`, `institution`, `working_field`, `documents`, `is_raising`),
+   - adds `verification_tasks.submitted_by_id`, the `notifications` and `project_reviews` tables, the `approved_projects` view and the private `project-documents` storage bucket with per-user folder policies,
+   - installs BEFORE INSERT/UPDATE triggers so non-staff can never set `role = 'staff'`, self-approve a project (`status`/`phase`/`ip_status`/review columns/funding fields), or set the human-review outcome on verification tasks. AI audit fields on verification tasks are written by the researcher's browser and are shown to staff as *self-reported (unverified)*.
+3. **Auth settings** (Authentication → URL configuration): set *Site URL* to your app origin and add `https://<your-domain>/auth/callback` and `http://localhost:3000/auth/callback` to *Redirect URLs*. Google sign-in uses the PKCE flow and completes on `/auth/callback` client-side.
+4. **Environment** — copy `.env.example` (or `.env.local.example` for local dev) and set:
+
+   | Variable | Purpose |
+   | --- | --- |
+   | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project (anon key only — the app never uses the service key) |
+   | `NEXT_PUBLIC_APP_URL` | Public origin used in auth redirects, email links and as the domain the Virtual Data Room signature is bound to (must match the origin users browse on; leave unset to bind to the request host) |
+   | `RESEND_API_KEY` | Optional. Enables submission / review emails via [Resend](https://resend.com). Without it emails are skipped and logged; in-app notifications still work |
+   | `MATDAO_NOTIFY_EMAIL` | Inbox that receives "new submission" emails (review team) |
+   | `MATDAO_FROM_EMAIL` | Sender address (default `MatDAO <onboarding@resend.dev>`, fine for testing; verify your domain in Resend for production) |
+
+### Staff role
+
+Staff (reviewer) accounts cannot be self-selected at sign-up. Create the account normally (researcher or investor), then promote it from the SQL editor:
+
+```sql
+update public.profiles set role = 'staff' where email = 'reviewer@your-university.edu';
+```
+
+A database trigger blocks any other path to `role = 'staff'` (including the client updating its own profile). Staff land on `/tto-portal` (the review queue) after sign-in and see a notification badge in the navbar.
 
 ## Smart Contracts
 
@@ -162,7 +197,13 @@ Deploy to Sepolia testnet using Hardhat or Foundry. Update contract addresses in
 
 - **Researchers**: Can submit projects, run AI analysis, submit milestone verifications, mint IP-NFTs, claim milestone funds
 - **Investors**: Can browse projects, fund projects, view ecosystem leaderboard
-- **Staff**: Can approve/reject verifications, approve milestones, view all data
+- **Staff**: Review the submission queue at `/tto-portal` (approve / reject / request changes), approve milestone verifications in `/ai-auditor`, mint IP-NFTs, view all data. Granted only via SQL — see [Staff role](#staff-role)
+
+### Submission → review flow
+
+1. Researcher submits at `/submit` (documents go to the private `project-documents` bucket) → project `status = pending_review`, a `notifications` row for staff is created and, if Resend is configured, `MATDAO_NOTIFY_EMAIL` receives a summary.
+2. Staff review at `/tto-portal` with signed document links; each decision writes `projects.status/review_notes/reviewed_by/reviewed_at`, a `project_reviews` row, a notification for the researcher and (optionally) an email to `projects.submitter_email`.
+3. Approved projects become publicly readable and show up on `/project` and `/project/<id>`.
 
 ## AI Analysis
 

@@ -6,9 +6,9 @@ import { DollarSign, TrendingUp, PiggyBank, Info } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 
-const ESCROW_ABI = [
-  "function getFinancialBreakdown() public view returns (uint256 totalGoal, uint256 platformFee, uint256 netRunway)"
-] as const
+import { ESCROW_ABI } from "@/lib/web3/abis"
+import { TARGET_CHAIN_ID, USDC_DECIMALS } from "@/lib/web3/config"
+import { formatUnits } from "viem"
 
 interface FinancialBreakdownProps {
   escrowAddress: string
@@ -25,17 +25,19 @@ export function FinancialBreakdown({ escrowAddress }: FinancialBreakdownProps) {
     address: escrowAddress as `0x${string}`,
     abi: ESCROW_ABI,
     functionName: "getFinancialBreakdown",
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: /^0x[0-9a-fA-F]{40}$/.test(escrowAddress || "") },
   })
 
   if (!breakdown) {
     return null
   }
 
-  const [totalGoal, platformFee, netRunway] = breakdown as unknown as readonly [bigint, bigint, bigint]
-  const total = Number(totalGoal) / 1e6
-  const fee = Number(platformFee) / 1e6
-  const runway = Number(netRunway) / 1e6
-  const feePercentage = ((fee / total) * 100).toFixed(1)
+  const [totalGoal, platformFee, netRunway] = breakdown
+  const total = Number(formatUnits(totalGoal, USDC_DECIMALS))
+  const fee = Number(formatUnits(platformFee, USDC_DECIMALS))
+  const runway = Number(formatUnits(netRunway, USDC_DECIMALS))
+  const feePercentage = total > 0 ? ((fee / total) * 100).toFixed(1) : "0.0"
 
   const data = [
     { name: "MatDAO Platform Fee", value: fee, color: COLORS.platform },

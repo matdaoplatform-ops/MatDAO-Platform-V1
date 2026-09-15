@@ -2,6 +2,9 @@ export interface Milestone {
   status: "completed" | "current" | "future"
   description: string
   timeline: string
+  /** Concrete actions the engine (LLM) listed for this milestone — absent in rule-based mode. */
+  specific_actions?: string[]
+  resources_needed?: string[]
 }
 
 export interface ProjectMilestones {
@@ -30,6 +33,17 @@ export interface TrlProject {
   team_expertise_score?: number
   institution_reputation_score?: number
   team_assessment?: string
+  /** Engine TRL fields mapped through from `trl_evaluation` (all optional; empty in rule-based mode). */
+  paper_review?: import("../ai-studio/types").PaperReview
+  key_indicators?: string[]
+  missing_for_next_trl?: string[]
+  evidence_quotes?: import("../ai-studio/types").EvidenceQuote[]
+  estimated_trl?: number
+  self_reported_trl?: number | null
+  self_reported_delta?: number | null
+  trl_confidence?: number
+  /** e.g. "llm:deepseek:deepseek-chat" or "rule_based_fallback" */
+  analysis_source?: string
 }
 
 export interface ResearcherProfile {
@@ -84,6 +98,8 @@ export interface CombinedAssessmentReport {
   trlProject: TrlProject
   ipReport?: import("../ai-studio/types").AnalysisReport
   dueDiligenceReport?: import("../ai-studio/types").DueDiligenceReport
+  /** LLM vs rule-based + backend warnings, so results pages can show whether the AI ran. */
+  provenance?: import("../ai-studio/types").AnalysisProvenance
   summary: {
     trl: number
     ipScore: number

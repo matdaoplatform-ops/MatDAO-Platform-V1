@@ -1,83 +1,79 @@
 "use client"
 
 import { useState } from "react"
-import { useAccount } from "wagmi"
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import { parseUnits } from "viem"
+import { useAccount, useReadContract } from "wagmi"
+import { formatUnits } from "viem"
 import { Building2, TrendingUp, DollarSign, Loader2, ArrowDownRight, ArrowUpRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { toast } from "react-hot-toast"
-
-const ESCROW_ABI = [
-  "function depositRoyalties(uint256 amount) external nonReentrant",
-  "function claimDividends() external nonReentrant",
-  "function getClaimableDividends(address user) public view returns (uint256)",
-  "function totalDividendPool() public view returns (uint256)",
-  "function fundingToken() public view returns (address)"
-] as const
+import { ESCROW_ABI } from "@/lib/web3/abis"
+import { TARGET_CHAIN_ID, USDC_DECIMALS } from "@/lib/web3/config"
+import { useRoyaltyDeposit } from "@/lib/web3/hooks/useRoyaltyDeposit"
+import { useClaimDividends } from "@/lib/web3/hooks/useClaimDividends"
+import { safeParseUnits } from "@/lib/web3/tx"
 
 interface RoyaltySimulationPanelProps {
   escrowAddress: string
 }
 
+const isAddress = (a?: string): a is `0x${string}` => /^0x[0-9a-fA-F]{40}$/.test(a || "")
+
 export function RoyaltySimulationPanel({ escrowAddress }: RoyaltySimulationPanelProps) {
   const { address } = useAccount()
-  const [royaltyAmount, setRoyaltyAmount] = useState(10000)
-  
-  const { data: totalDividendPool } = useReadContract({
-    address: escrowAddress as `0x${string}`,
+  const [royaltyInput, setRoyaltyInput] = useState("10000")
+  const hasEscrow = isAddress(escrowAddress)
+  const escrow = escrowAddress as `0x${string}`
+
+  const { data: totalDividendPool, refetch: refetchPool } = useReadContract({
+    address: escrow,
     abi: ESCROW_ABI,
     functionName: "totalDividendPool",
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: hasEscrow },
   })
-  
-  const { data: claimableDividends } = useReadContract({
-    address: escrowAddress as `0x${string}`,
+
+  const { data: claimableDividends, refetch: refetchClaimable } = useReadContract({
+    address: escrow,
     abi: ESCROW_ABI,
     functionName: "getClaimableDividends",
-    args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: !!address },
+    args: address ? [address] : undefined,
+    chainId: TARGET_CHAIN_ID,
+    query: { enabled: hasEscrow && Boolean(address) },
   })
 
-  const { data: hash, writeContract, isPending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash })
+  const { depositRoyalties, isPending: isDepositing } = useRoyaltyDeposit()
+  const { claimDividends, isPending: isClaiming } = useClaimDividends()
+  const isPending = isDepositing || isClaiming
+
+  const parsedRoyalty = safeParseUnits(royaltyInput, USDC_DECIMALS)
+  const royaltyAmount = parsedRoyalty ? Number(formatUnits(parsedRoyalty, USDC_DECIMALS)) : 0
+
+  const refresh = () => {
+    void refetchPool()
+    void refetchClaimable()
+  }
 
   const handleDepositRoyalties = async () => {
+    if (!parsedRoyalty) return
     try {
-      toast.loading("Depositing royalties...", { id: "deposit-royalties" })
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "depositRoyalties",
-        args: [parseUnits(royaltyAmount.toString(), 6)],
-      })
-      toast.loading("Transaction confirming...", { id: "deposit-royalties" })
-    } catch (error) {
-      console.error("Error depositing royalties:", error)
-      toast.error("Failed to deposit royalties", { id: "deposit-royalties" })
+      // The hook approves USDC first (waiting for it to be mined) when needed.
+      await depositRoyalties({ escrowAddress, amount: parsedRoyalty })
+      refresh()
+    } catch {
+      // toast shown by hook
     }
   }
 
   const handleClaimDividends = async () => {
     try {
-      toast.loading("Claiming dividends...", { id: "claim-dividends" })
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "claimDividends",
-      })
-      toast.loading("Transaction confirming...", { id: "claim-dividends" })
-    } catch (error) {
-      console.error("Error claiming dividends:", error)
-      toast.error("Failed to claim dividends", { id: "claim-dividends" })
+      await claimDividends({ escrowAddress })
+      refresh()
+    } catch {
+      // toast shown by hook
     }
-  }
-
-  if (isSuccess) {
-    toast.success("Transaction completed successfully!", { id: isPending ? "deposit-royalties" : "claim-dividends" })
   }
 
   // Calculate royalty splits
@@ -85,8 +81,8 @@ export function RoyaltySimulationPanel({ escrowAddress }: RoyaltySimulationPanel
   const researcherFee = (royaltyAmount * 30) / 100
   const investorPool = royaltyAmount - daoFee - researcherFee
 
-  const totalPool = totalDividendPool ? Number(totalDividendPool) / 1e6 : 0
-  const claimable = claimableDividends ? Number(claimableDividends) / 1e6 : 0
+  const totalPool = totalDividendPool ? Number(formatUnits(totalDividendPool, USDC_DECIMALS)) : 0
+  const claimable = claimableDividends ? Number(formatUnits(claimableDividends, USDC_DECIMALS)) : 0
 
   return (
     <div className="space-y-4">
@@ -106,11 +102,15 @@ export function RoyaltySimulationPanel({ escrowAddress }: RoyaltySimulationPanel
             <Label htmlFor="royalty-amount">Licensing Amount (USDC)</Label>
             <Input
               id="royalty-amount"
-              type="number"
-              value={royaltyAmount}
-              onChange={(e) => setRoyaltyAmount(Number(e.target.value))}
+              type="text"
+              inputMode="decimal"
+              value={royaltyInput}
+              onChange={(e) => setRoyaltyInput(e.target.value)}
               placeholder="Enter amount"
             />
+            {royaltyInput !== "" && parsedRoyalty === null && (
+              <p className="text-xs text-red-500">Enter a valid USDC amount.</p>
+            )}
           </div>
 
           <div className="grid grid-cols-3 gap-4 p-4 bg-secondary/20 rounded-lg">
@@ -130,10 +130,10 @@ export function RoyaltySimulationPanel({ escrowAddress }: RoyaltySimulationPanel
 
           <Button
             onClick={handleDepositRoyalties}
-            disabled={isPending || isConfirming}
+            disabled={isPending || !hasEscrow || !address || parsedRoyalty === null}
             className="w-full"
           >
-            {isPending || isConfirming ? (
+            {isDepositing ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Processing...
@@ -200,11 +200,11 @@ export function RoyaltySimulationPanel({ escrowAddress }: RoyaltySimulationPanel
           {address && (
             <Button
               onClick={handleClaimDividends}
-              disabled={isPending || isConfirming || claimable === 0}
+              disabled={isPending || !hasEscrow || claimable === 0}
               className="w-full"
               variant={claimable > 0 ? "default" : "outline"}
             >
-              {isPending || isConfirming ? (
+              {isClaiming ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Processing...

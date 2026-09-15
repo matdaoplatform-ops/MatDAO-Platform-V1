@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
@@ -16,7 +17,13 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
 
     IERC20 public usdcToken;
     IERC20 public iptToken;
-    uint256 public exchangeRate; // 1 IPT = X USDC (scaled by 1e6 for USDC decimals)
+    /// @notice Price of ONE whole IPT expressed in USDC base units (6 decimals).
+    /// e.g. 1e6 means 1 IPT = 1 USDC; 2.5e6 means 1 IPT = 2.5 USDC.
+    uint256 public exchangeRate;
+    /// @notice 10 ** decimals() of each token, read once at deployment so the
+    /// contract works whether IPT has 6 or 18 decimals.
+    uint256 public immutable usdcScale;
+    uint256 public immutable iptScale;
     
     // Events
     event SwapUSDCForIPT(address indexed user, uint256 usdcAmount, uint256 iptAmount);
@@ -29,7 +36,7 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
      * @dev Constructor to initialize the swap contract
      * @param _usdcToken The USDC token address
      * @param _iptToken The IPT token address
-     * @param _exchangeRate Initial exchange rate (1 IPT = X USDC, scaled by 1e6)
+     * @param _exchangeRate Initial exchange rate: USDC base units per ONE whole IPT (1e6 = 1 USDC per IPT)
      */
     constructor(
         address _usdcToken,
@@ -43,6 +50,8 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
         usdcToken = IERC20(_usdcToken);
         iptToken = IERC20(_iptToken);
         exchangeRate = _exchangeRate;
+        usdcScale = 10 ** uint256(IERC20Metadata(_usdcToken).decimals());
+        iptScale = 10 ** uint256(IERC20Metadata(_iptToken).decimals());
     }
 
     /**
@@ -52,8 +61,8 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
     function swapUSDCForIPT(uint256 usdcAmount) external nonReentrant {
         require(usdcAmount > 0, "Amount must be > 0");
         
-        // Calculate IPT amount (USDC / exchangeRate)
-        uint256 iptAmount = (usdcAmount * 1e6) / exchangeRate;
+        // IPT base units = USDC base units * (1 whole IPT) / (USDC per whole IPT)
+        uint256 iptAmount = (usdcAmount * iptScale) / exchangeRate;
         require(iptAmount > 0, "Insufficient exchange rate");
         
         // Check contract has enough IPT
@@ -75,8 +84,8 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
     function swapIPTForUSDC(uint256 iptAmount) external nonReentrant {
         require(iptAmount > 0, "Amount must be > 0");
         
-        // Calculate USDC amount (IPT * exchangeRate / 1e6)
-        uint256 usdcAmount = (iptAmount * exchangeRate) / 1e6;
+        // USDC base units = IPT base units * (USDC per whole IPT) / (1 whole IPT)
+        uint256 usdcAmount = (iptAmount * exchangeRate) / iptScale;
         require(usdcAmount > 0, "Insufficient exchange rate");
         
         // Check contract has enough USDC
@@ -140,7 +149,7 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
      * @param usdcAmount The amount of USDC
      */
     function getQuoteUSDCForIPT(uint256 usdcAmount) public view returns (uint256) {
-        return (usdcAmount * 1e6) / exchangeRate;
+        return (usdcAmount * iptScale) / exchangeRate;
     }
 
     /**
@@ -148,7 +157,7 @@ contract MatDAO_Swap is Ownable, ReentrancyGuard {
      * @param iptAmount The amount of IPT
      */
     function getQuoteIPTForUSDC(uint256 iptAmount) public view returns (uint256) {
-        return (iptAmount * exchangeRate) / 1e6;
+        return (iptAmount * exchangeRate) / iptScale;
     }
 
     /**

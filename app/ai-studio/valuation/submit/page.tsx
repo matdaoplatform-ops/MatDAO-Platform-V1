@@ -112,7 +112,7 @@ export default function ValuationSubmitPage() {
         </h1>
         <p className="mb-8 text-sm text-white/60">
           Peer-reviewed papers, preprints, arXiv exports, technical reports, or patent drafts — all run through
-          the same IPC → OpenAI embeddings → FTO → USD valuation pipeline. Processed entirely in volatile memory.
+          the same IPC classification → live prior-art search → originality verdict → FTO pipeline. The USD valuation model is currently under revision. Processed entirely in volatile memory.
         </p>
 
         <BackendStatus required />

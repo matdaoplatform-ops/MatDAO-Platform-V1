@@ -7,11 +7,18 @@
     "esModuleInterop": true,
     "strict": false,
     "skipLibCheck": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "noEmit": false,
+    "incremental": false,
+    "isolatedModules": false,
+    "plugins": []
   },
   "include": [
+    "hardhat.config.ts",
     "scripts/**/*",
-    "contracts/**/*"
+    "test/**/*",
+    "lib/web3/**/*",
+    "typechain-types/**/*"
   ],
   "exclude": ["node_modules"]
 }

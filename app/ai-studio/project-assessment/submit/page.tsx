@@ -53,8 +53,8 @@ export default function ProjectAssessmentSubmitPage() {
     // Validate PDF file if uploaded
     if (file && file.type === "application/pdf") {
       const fileSizeMB = file.size / (1024 * 1024)
-      if (fileSizeMB > 50) {
-        setError("PDF file is too large. Please use a smaller file or paste the text content directly.")
+      if (fileSizeMB > 15) {
+        setError("PDF file is too large (the IP Engine accepts up to 15 MB). Please use a smaller file or paste the text content directly.")
         return
       }
       
@@ -73,36 +73,35 @@ export default function ProjectAssessmentSubmitPage() {
       }
     }
     
+    const parsedTrl = useUserTrl ? parseInt(userTrl, 10) : NaN
+    if (useUserTrl && !(parsedTrl >= 1 && parsedTrl <= 9)) {
+      setError("Select your current TRL level (1–9) or untick the checkbox.")
+      return
+    }
+
     setLoading(true)
     setError(null)
     try {
+      // The uploaded file is sent as-is; pasted text is only used as text.
+      // (PDF bytes are never read as text on the client.)
       const report = await runCombinedAssessment({
         title,
         author,
         category,
-        textContent: textContent || (file ? await file.text() : ""),
+        textContent,
         file,
         proposalFile,
         pitchdeckFile,
         financialsFile,
-        userTrl: useUserTrl ? parseInt(userTrl) : undefined,
+        userTrl: useUserTrl ? parsedTrl : undefined,
       })
-      
-      // Check if the analysis indicates poor text extraction
-      if (report.ipReport?.document_stats?.abstract_chars === 0 && file) {
-        setError("Warning: The PDF text extraction may have failed. Consider pasting the text content directly for better results.")
-      }
-      
+
       sessionStorage.setItem("matdao-combined-report", JSON.stringify(report))
       router.push("/ai-studio/project-assessment/results")
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Assessment failed"
-      
-      // Provide helpful suggestions based on error type
-      if (errorMessage.includes("PDF parsing error") || errorMessage.includes("could not be properly extracted")) {
-        setError("PDF text extraction failed. This PDF may be image-based or corrupted. Please try pasting the text content directly instead of uploading the file.")
-      } else if (errorMessage.includes("Backend analysis failed")) {
-        setError("Backend analysis is currently unavailable. Using fallback analysis. For best results, ensure the backend is running.")
+      if (/extract|image-based|no extractable text|OCR/i.test(errorMessage)) {
+        setError(`${errorMessage} — this PDF may be image-only or corrupted. Try pasting the text directly.`)
       } else {
         setError(errorMessage)
       }
@@ -203,11 +202,11 @@ export default function ProjectAssessmentSubmitPage() {
             }}
           >
             <FileUp className="mx-auto mb-2 h-8 w-8 text-white/40" />
-            <p className="text-sm text-white/60">Drop PDF, DOCX, or TXT (optional if pasting below)</p>
+            <p className="text-sm text-white/60">Drop PDF, DOCX, TXT or MD (optional if pasting below)</p>
             {file && <p className="mt-2 text-xs text-[#c5fdff]">{file.name}</p>}
             <input
               type="file"
-              accept=".pdf,.docx,.txt"
+              accept=".pdf,.docx,.txt,.md"
               className="mt-3 text-xs text-white/50"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
             />
@@ -223,12 +222,13 @@ export default function ProjectAssessmentSubmitPage() {
           {/* Additional Document Uploads */}
           <div className="space-y-4 pt-4 border-t border-white/10">
             <p className="text-xs font-semibold text-white/70 uppercase tracking-wider">Additional Documents (Optional)</p>
+            <p className="text-xs text-white/45">Sent to the engine as supporting files and read alongside the main document (PDF, DOCX, TXT, MD, PPTX, CSV, XLSX · max 10 MB each).</p>
             
             <div className="rounded-xl border border-white/15 bg-black/20 p-4">
               <label className="text-sm text-white/80 mb-2 block">Proposal Document</label>
               <input
                 type="file"
-                accept=".pdf,.docx,.txt"
+                accept=".pdf,.docx,.txt,.md"
                 className="text-xs text-white/50"
                 onChange={(e) => setProposalFile(e.target.files?.[0] || null)}
               />
@@ -239,7 +239,7 @@ export default function ProjectAssessmentSubmitPage() {
               <label className="text-sm text-white/80 mb-2 block">Pitch Deck</label>
               <input
                 type="file"
-                accept=".pdf,.pptx,.ppt"
+                accept=".pdf,.pptx"
                 className="text-xs text-white/50"
                 onChange={(e) => setPitchdeckFile(e.target.files?.[0] || null)}
               />
@@ -250,7 +250,7 @@ export default function ProjectAssessmentSubmitPage() {
               <label className="text-sm text-white/80 mb-2 block">Financials / Projections</label>
               <input
                 type="file"
-                accept=".pdf,.xlsx,.xls,.csv"
+                accept=".pdf,.xlsx,.csv"
                 className="text-xs text-white/50"
                 onChange={(e) => setFinancialsFile(e.target.files?.[0] || null)}
               />
@@ -268,7 +268,7 @@ export default function ProjectAssessmentSubmitPage() {
               className="h-4 w-4 rounded border-white/20 bg-black/30 text-[#6efcff] focus:ring-[#6efcff]"
             />
             <label htmlFor="useUserTrl" className="text-sm text-white/70">
-              I know my current TRL level
+              I know my current TRL level <span className="text-white/40">(sent as self-reported; the engine reports the gap to its evidence-based estimate)</span>
             </label>
           </div>
           {useUserTrl && (

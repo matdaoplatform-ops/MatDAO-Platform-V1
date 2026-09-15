@@ -1,6 +1,6 @@
-import { analyzeDocument } from "./api"
-import type { AnalysisReport } from "./types"
-import type { ProjectMilestones, TrlProject } from "../trl-services/types"
+import { analyzeDocument, provenanceFromReport } from "./api"
+import type { AnalysisProvenance, AnalysisReport, EngineMilestone, EvidenceQuote, PaperReview } from "./types"
+import type { Milestone, ProjectMilestones, TrlProject } from "../trl-services/types"
 
 export interface TrlReport {
   documentName: string
@@ -13,32 +13,59 @@ export interface TrlReport {
   sectorName: string
   analysisSource: "engine" | "client"
   timestamp: number
+  // ---- engine detail (optional; empty in rule-based mode or on old saved reports) ----
+  provenance?: AnalysisProvenance
+  /** Raw engine label, e.g. "llm:deepseek:deepseek-chat" or "rule_based_fallback". */
+  engineSource?: string
+  confidence?: number
+  estimatedTrl?: number
+  selfReportedTrl?: number | null
+  selfReportedDelta?: number | null
+  keyIndicators?: string[]
+  missingForNextTrl?: string[]
+  evidenceQuotes?: EvidenceQuote[]
+  paperReview?: PaperReview
+  teamExpertiseScore?: number
+  institutionReputationScore?: number
+  teamAssessment?: string
 }
 
-function mapMilestonesFromEngine(
-  raw: NonNullable<AnalysisReport["trl_evaluation"]>["milestones"],
+function cleanList(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value.map((v) => (typeof v === "string" ? v.trim() : "")).filter(Boolean)
+}
+
+function cleanQuotes(value: unknown): EvidenceQuote[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((q): q is EvidenceQuote => !!q && typeof q === "object" && typeof (q as EvidenceQuote).quote === "string")
+    .map((q) => ({ quote: q.quote, location: q.location, supports: q.supports }))
+}
+
+function mapMilestone(raw: EngineMilestone | undefined, fallbackDescription: string): Milestone {
+  const status: Milestone["status"] =
+    raw?.status === "completed" || raw?.status === "current" || raw?.status === "future" ? raw.status : "future"
+  const m: Milestone = {
+    status,
+    description: raw?.description || fallbackDescription,
+    timeline: raw?.timeline || "TBD",
+  }
+  const actions = cleanList(raw?.specific_actions)
+  const resources = cleanList(raw?.resources_needed)
+  if (actions.length) m.specific_actions = actions
+  if (resources.length) m.resources_needed = resources
+  return m
+}
+
+/** Map engine milestones (snake_case, with optional LLM action lists) onto the platform shape. */
+export function mapMilestonesFromEngine(
+  raw: Partial<NonNullable<AnalysisReport["trl_evaluation"]>["milestones"]> | undefined,
 ): ProjectMilestones {
   return {
-    prototype: {
-      status: raw.prototype.status,
-      description: raw.prototype.description,
-      timeline: raw.prototype.timeline,
-    },
-    mvp: {
-      status: raw.mvp.status,
-      description: raw.mvp.description,
-      timeline: raw.mvp.timeline,
-    },
-    pilotTest: {
-      status: raw.pilot_test.status,
-      description: raw.pilot_test.description,
-      timeline: raw.pilot_test.timeline,
-    },
-    commercialization: {
-      status: raw.commercialization.status,
-      description: raw.commercialization.description,
-      timeline: raw.commercialization.timeline,
-    },
+    prototype: mapMilestone(raw?.prototype, "Bench-scale prototype validation."),
+    mvp: mapMilestone(raw?.mvp, "Integrated MVP for partner testing."),
+    pilotTest: mapMilestone(raw?.pilot_test, "Operational pilot deployment."),
+    commercialization: mapMilestone(raw?.commercialization, "Commercial scale-up and licensing."),
   }
 }
 
@@ -49,23 +76,49 @@ export function deriveTrlFromAnalysis(report: AnalysisReport, documentName: stri
     throw new Error("TRL evaluation missing from engine response")
   }
 
+  // In rule-based mode the backend fills paper_review / specific_actions /
+  // resources_needed with static placeholder templates. They are not
+  // findings, so drop them rather than present them as engine output.
+  const isLlm = typeof trl.analysis_source === "string" && trl.analysis_source.startsWith("llm")
+  const paperReview = isLlm && trl.paper_review && typeof trl.paper_review === "object" ? trl.paper_review : undefined
+  const milestones = mapMilestonesFromEngine(trl.milestones)
+  if (!isLlm) {
+    for (const m of Object.values(milestones)) {
+      delete m.specific_actions
+      delete m.resources_needed
+    }
+  }
+
   return {
     documentName,
     trl: trl.trl,
     trlSummary: trl.trl_summary,
-    accomplishments: trl.accomplishments,
+    accomplishments: cleanList(trl.accomplishments),
     potentialPartnership: trl.potential_partnership,
     innovationScore: trl.innovation_score,
-    milestones: mapMilestonesFromEngine(trl.milestones),
+    milestones,
     sectorName: trl.sector_name,
     analysisSource: "engine",
     timestamp: Date.now(),
+    provenance: provenanceFromReport(report),
+    engineSource: trl.analysis_source,
+    confidence: typeof trl.confidence === "number" ? trl.confidence : undefined,
+    estimatedTrl: trl.estimated_trl ?? trl.trl,
+    selfReportedTrl: trl.self_reported_trl ?? null,
+    selfReportedDelta: trl.self_reported_delta ?? null,
+    keyIndicators: cleanList(trl.key_indicators),
+    missingForNextTrl: cleanList(trl.missing_for_next_trl),
+    evidenceQuotes: cleanQuotes(trl.evidence_quotes),
+    paperReview,
+    teamExpertiseScore: trl.team_expertise_score,
+    institutionReputationScore: trl.institution_reputation_score,
+    teamAssessment: trl.team_assessment,
   }
 }
 
 export function trlReportToProject(report: TrlReport, title?: string, author?: string): TrlProject {
   const name = title || report.documentName.replace(/\.[^.]+$/, "")
-  return {
+  const project: TrlProject = {
     id: `proj-${Date.now()}`,
     title: name,
     author: author || "Independent Researcher",
@@ -79,52 +132,20 @@ export function trlReportToProject(report: TrlReport, title?: string, author?: s
     score: report.innovationScore,
     createdAt: new Date().toISOString(),
     logo: "composite",
+    analysis_source: report.engineSource,
+    estimated_trl: report.estimatedTrl,
+    self_reported_trl: report.selfReportedTrl,
+    self_reported_delta: report.selfReportedDelta,
+    trl_confidence: report.confidence,
   }
-}
-
-function scoreTextTrl(text: string, documentName: string): TrlReport {
-  const lower = text.toLowerCase()
-  let trl = 3
-  if (/production|commercial|certified|market/i.test(lower)) trl = 8
-  else if (/pilot|operational|field test/i.test(lower)) trl = 6
-  else if (/prototype|functional|bench/i.test(lower)) trl = 4
-  else if (/theory|simulated|modeling/i.test(lower)) trl = 2
-
-  const milestones: ProjectMilestones = {
-    prototype: {
-      status: trl >= 4 ? "completed" : "current",
-      description: "Bench-scale prototype validation.",
-      timeline: trl >= 4 ? "Completed" : "Target Q4 2026",
-    },
-    mvp: {
-      status: trl >= 6 ? "completed" : trl >= 4 ? "current" : "future",
-      description: "Integrated MVP for partner testing.",
-      timeline: trl >= 6 ? "Completed" : "Target Q2 2027",
-    },
-    pilotTest: {
-      status: trl >= 8 ? "completed" : trl === 7 ? "current" : "future",
-      description: "Operational pilot deployment.",
-      timeline: trl >= 8 ? "Completed" : "Target Q1 2028",
-    },
-    commercialization: {
-      status: trl === 9 ? "completed" : trl === 8 ? "current" : "future",
-      description: "Commercial scale-up and licensing.",
-      timeline: trl === 9 ? "Completed" : "Target Q4 2028",
-    },
-  }
-
-  return {
-    documentName,
-    trl,
-    trlSummary: `Estimated TRL ${trl} from document text signals (offline client scoring).`,
-    accomplishments: ["Document parsed for TRL keyword signals."],
-    potentialPartnership: "Seeking partners aligned with current TRL stage.",
-    innovationScore: 40 + trl * 6,
-    milestones,
-    sectorName: "Deep Tech",
-    analysisSource: "client",
-    timestamp: Date.now(),
-  }
+  if (report.keyIndicators?.length) project.key_indicators = report.keyIndicators
+  if (report.missingForNextTrl?.length) project.missing_for_next_trl = report.missingForNextTrl
+  if (report.evidenceQuotes?.length) project.evidence_quotes = report.evidenceQuotes
+  if (report.paperReview) project.paper_review = report.paperReview
+  if (typeof report.teamExpertiseScore === "number") project.team_expertise_score = report.teamExpertiseScore
+  if (typeof report.institutionReputationScore === "number") project.institution_reputation_score = report.institutionReputationScore
+  if (report.teamAssessment) project.team_assessment = report.teamAssessment
+  return project
 }
 
 export async function analyzeTrl(file: File): Promise<TrlReport> {

@@ -1,446 +1,452 @@
 "use client"
 
-import { createContext, useContext, useState, useCallback, useEffect, type ReactNode } from "react"
+import {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react"
+import type { Session, User as SupabaseUser } from "@supabase/supabase-js"
 import { supabase } from "@/lib/supabase/client"
-import type { Database } from "@/lib/supabase/client"
-import { useAccount, useConnect, useDisconnect } from 'wagmi'
-import { injected, walletConnect } from 'wagmi/connectors'
-
-// Local cooldown tracking
-const COOLDOWN_KEY = 'auth_cooldown'
-const COOLDOWN_DURATION = 5 * 60 * 1000 // 5 minutes
-
-function getCooldownRemaining(): number {
-  const cooldownEnd = localStorage.getItem(COOLDOWN_KEY)
-  if (!cooldownEnd) return 0
-  const remaining = parseInt(cooldownEnd) - Date.now()
-  return Math.max(0, remaining)
-}
-
-function setCooldown(): void {
-  localStorage.setItem(COOLDOWN_KEY, (Date.now() + COOLDOWN_DURATION).toString())
-}
-
-function clearCooldown(): void {
-  localStorage.removeItem(COOLDOWN_KEY)
-}
+import type { Database, ProfileRow, UserRole } from "@/lib/supabase/client"
+import { isSelfServiceRole, type SelfServiceRole } from "@/lib/auth-routes"
+import { useAccount, useConnect, useDisconnect } from "wagmi"
+import { injected, walletConnect } from "wagmi/connectors"
 
 export interface User {
   id: string
   email: string
   name: string
-  role: "researcher" | "staff" | "investor"
+  role: UserRole
   walletAddress: string | null
   university: string | null
+  avatarUrl: string | null
+  /** OAuth provider that created the account (e.g. "google"), if any. */
+  provider: string | null
+  /** True when the account was created via OAuth and never completed onboarding. */
+  needsOnboarding: boolean
+}
+
+export interface SignUpInput {
+  email: string
+  password: string
+  name: string
+  role: SelfServiceRole
+  university?: string
+}
+
+export interface SignUpResult {
+  user: User | null
+  /** True when Supabase requires the user to confirm their email before a session exists. */
+  needsEmailConfirmation: boolean
 }
 
 interface AuthContextType {
   user: User | null
+  session: Session | null
   isLoading: boolean
   signIn: (email: string, password: string) => Promise<User | undefined>
-  signInWithGoogle: () => Promise<void>
-  signUp: (data: {
-    email: string
-    password: string
-    name: string
-    role: "researcher" | "staff" | "investor"
-    university?: string
-  }) => Promise<User | undefined>
+  signInWithGoogle: (next?: string) => Promise<void>
+  signUp: (data: SignUpInput) => Promise<SignUpResult>
   signOut: () => Promise<void>
+  /** Re-read the profile row for the current session. */
+  refreshProfile: () => Promise<User | null>
+  /** Create the profile row when the DB trigger is not installed (id = auth.uid()). */
+  ensureProfile: (sessionUser: SupabaseUser) => Promise<User | null>
+  /** Update editable profile fields (name / role / university). */
+  updateProfile: (patch: { name?: string; role?: SelfServiceRole; university?: string | null }) => Promise<User>
+  getAccessToken: () => Promise<string | null>
   connectWallet: () => Promise<void>
   disconnectWallet: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+const ONBOARDING_FLAG = "onboarding_pending"
+
+function profileToUser(profile: ProfileRow, sessionUser?: SupabaseUser | null): User {
+  const provider =
+    (sessionUser?.app_metadata?.provider as string | undefined) ??
+    (sessionUser?.identities?.[0]?.provider as string | undefined) ??
+    null
+  const metaFlag = sessionUser?.user_metadata?.[ONBOARDING_FLAG]
+  const needsOnboarding =
+    provider != null && provider !== "email" && (metaFlag === true || metaFlag === undefined) && !profile.university && profile.role === "researcher"
+  return {
+    id: profile.id,
+    email: profile.email,
+    name: profile.name,
+    role: profile.role,
+    walletAddress: profile.wallet_address,
+    university: profile.university,
+    avatarUrl: profile.avatar_url ?? null,
+    provider,
+    needsOnboarding,
+  }
+}
+
+/** Turn a Supabase auth error into something a person can act on. */
+export function describeAuthError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error ?? "")
+  const lower = message.toLowerCase()
+  if (lower.includes("email not confirmed")) {
+    return "Your email address has not been confirmed yet. Check your inbox for the confirmation link."
+  }
+  if (lower.includes("invalid login credentials") || lower.includes("invalid credentials")) {
+    return "Incorrect email or password."
+  }
+  if (lower.includes("rate limit") || lower.includes("too many requests") || lower.includes("429")) {
+    return "Too many attempts. Please wait a few minutes and try again."
+  }
+  if (lower.includes("user already registered") || lower.includes("already been registered")) {
+    return "This email is already registered. Please sign in instead."
+  }
+  if (lower.includes("password should be")) {
+    return message
+  }
+  if (lower.includes("signups not allowed")) {
+    return "Sign-ups are currently disabled. Please contact the MatDAO team."
+  }
+  if (lower.includes("failed to fetch") || lower.includes("network")) {
+    return "Could not reach the authentication service. Check your connection and try again."
+  }
+  return message || "Something went wrong. Please try again."
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const { address, isConnected } = useAccount()
   const { connect } = useConnect()
   const { disconnect } = useDisconnect()
+  const userRef = useRef<User | null>(null)
+  userRef.current = user
 
-  // Log wallet state changes for debugging
-  useEffect(() => {
-    console.log('Wagmi wallet state:', { isConnected, address })
-  }, [isConnected, address])
+  const loadUserProfile = useCallback(
+    async (sessionUser: SupabaseUser): Promise<User | null> => {
+      const { data: profile, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", sessionUser.id)
+        .maybeSingle()
 
-  useEffect(() => {
-    // Check for existing session
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (session?.user) {
-        await loadUserProfile(session.user.id)
+      if (error) {
+        console.error("Error loading profile:", error.message)
+        return null
       }
-      setIsLoading(false)
+      if (!profile) return null
+      const loaded = profileToUser(profile, sessionUser)
+      setUser(loaded)
+      return loaded
+    },
+    [],
+  )
+
+  /**
+   * Fallback for projects where the `handle_new_user` trigger is not (yet)
+   * installed: create the profile row from the session's metadata. The
+   * profiles INSERT policy allows `auth.uid() = id`.
+   */
+  const ensureProfile = useCallback(
+    async (sessionUser: SupabaseUser): Promise<User | null> => {
+      const existing = await loadUserProfile(sessionUser)
+      if (existing) return existing
+
+      const meta = (sessionUser.user_metadata ?? {}) as Record<string, unknown>
+      const requestedRole = meta.role
+      const role: SelfServiceRole = isSelfServiceRole(requestedRole) ? requestedRole : "researcher"
+      const name =
+        (typeof meta.name === "string" && meta.name.trim()) ||
+        (typeof meta.full_name === "string" && meta.full_name.trim()) ||
+        sessionUser.email?.split("@")[0] ||
+        "New user"
+      const avatar =
+        (typeof meta.avatar_url === "string" && meta.avatar_url) ||
+        (typeof meta.picture === "string" && meta.picture) ||
+        null
+
+      const { error } = await supabase.from("profiles").upsert(
+        {
+          id: sessionUser.id,
+          email: sessionUser.email ?? `${sessionUser.id}@no-email.local`,
+          name,
+          role,
+          university: typeof meta.university === "string" && meta.university ? meta.university : null,
+          avatar_url: avatar,
+        },
+        { onConflict: "id", ignoreDuplicates: true },
+      )
+      if (error) {
+        console.error("Could not create profile:", error.message)
+        return null
+      }
+      return loadUserProfile(sessionUser)
+    },
+    [loadUserProfile],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+
+    const bootstrap = async () => {
+      const {
+        data: { session: current },
+      } = await supabase.auth.getSession()
+      if (cancelled) return
+      setSession(current)
+      if (current?.user) {
+        await ensureProfile(current.user)
+      }
+      if (!cancelled) setIsLoading(false)
     }
+    bootstrap()
 
-    checkSession()
-
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'SIGNED_IN' && session?.user) {
-        await loadUserProfile(session.user.id)
-      } else if (event === 'SIGNED_OUT') {
+    // IMPORTANT: never await Supabase calls inside the listener itself — the
+    // client holds an internal lock while dispatching and awaiting inside it
+    // can deadlock. Defer the work to the next macrotask instead.
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      setSession(nextSession)
+      if (event === "SIGNED_OUT") {
         setUser(null)
+        setIsLoading(false)
+        return
       }
-      setIsLoading(false)
+      if (
+        (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "USER_UPDATED" || event === "INITIAL_SESSION") &&
+        nextSession?.user
+      ) {
+        const sessionUser = nextSession.user
+        setTimeout(() => {
+          if (cancelled) return
+          const shouldLoad =
+            event !== "TOKEN_REFRESHED" || !userRef.current || userRef.current.id !== sessionUser.id
+          const run = shouldLoad ? ensureProfile(sessionUser) : Promise.resolve(userRef.current)
+          run.finally(() => {
+            if (!cancelled) setIsLoading(false)
+          })
+        }, 0)
+      } else if (!nextSession) {
+        setIsLoading(false)
+      }
     })
 
-    return () => subscription.unsubscribe()
-  }, [])
+    return () => {
+      cancelled = true
+      subscription.unsubscribe()
+    }
+  }, [ensureProfile])
 
-  // Sync wallet connection with user state
+  // Keep the linked wallet address in sync with the connected wallet.
   useEffect(() => {
-    const handleWalletConnection = async () => {
-      console.log('Wallet connection state changed:', { isConnected, address, user })
-
-      if (isConnected && address) {
-        if (user) {
-          // Only update if wallet address has changed
-          if (user.walletAddress !== address) {
-            console.log('Updating wallet address for existing user:', user.id, 'new address:', address)
-            const { error } = await supabase
-              .from('profiles')
-              .update({ wallet_address: address })
-              .eq('id', user.id)
-
-            if (!error) {
-              console.log('Wallet address updated successfully in database')
-              setUser({ ...user, walletAddress: address })
-              console.log('User state updated with wallet address:', address)
-            } else {
-              console.error('Error updating wallet address:', error)
-            }
-          }
-        } else {
-          // No email user signed in - wallet connection requires email sign-in first
-          console.log('Wallet connected but no email user. Please sign in with email first to link wallet.')
-          // Do not create wallet-only user - require email sign-in first
-        }
-      } else if (!isConnected && user && user.walletAddress) {
-        // Wallet disconnected, remove wallet address from profile
-        console.log('Wallet disconnected, removing wallet address from profile')
-        const { error } = await supabase
-          .from('profiles')
-          .update({ wallet_address: null })
-          .eq('id', user.id)
-
-        if (!error) {
-          setUser({ ...user, walletAddress: null })
-        }
+    const sync = async () => {
+      if (!user) return
+      if (isConnected && address && user.walletAddress !== address) {
+        const { error } = await supabase.from("profiles").update({ wallet_address: address }).eq("id", user.id)
+        if (!error) setUser({ ...user, walletAddress: address })
+        else console.error("Error updating wallet address:", error.message)
       }
     }
-
-    handleWalletConnection()
+    sync()
   }, [isConnected, address, user])
 
-  const loadUserProfile = async (userId: string): Promise<User | undefined> => {
-    console.log('loadUserProfile called for userId:', userId)
-    const { data: profile, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
-
-    if (error) {
-      console.error('Error loading profile:', error)
-      return undefined
+  const refreshProfile = useCallback(async () => {
+    const {
+      data: { session: current },
+    } = await supabase.auth.getSession()
+    if (!current?.user) {
+      setUser(null)
+      return null
     }
+    return loadUserProfile(current.user)
+  }, [loadUserProfile])
 
-    if (profile) {
-      console.log('Profile loaded successfully:', profile)
-      const loadedUser: User = {
-        id: profile.id,
-        email: profile.email,
-        name: profile.name,
-        role: profile.role as User['role'],
-        walletAddress: profile.wallet_address,
-        university: profile.university,
-      }
-      setUser(loadedUser)
-      console.log('User state set to:', profile)
-      return loadedUser
-    } else {
-      console.error('Profile not found for user:', userId)
-      return undefined
-    }
-  }
-
-  const signIn = useCallback(async (email: string, password: string) => {
-    setIsLoading(true)
-    try {
-      console.log('Attempting sign in with email:', email)
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      })
-
-      if (error) {
-        console.error('Sign in error from Supabase:', error)
-        // Handle rate limit errors
-        if (error.message.includes('rate limit') || error.message.includes('too many requests')) {
-          throw new Error('Too many sign in attempts. Please wait a few minutes before trying again.')
-        }
-        throw error
-      }
-
-      console.log('Sign in successful, user data:', data.user)
-      if (data.user) {
-        console.log('Loading user profile for:', data.user.id)
-        const loadedUser = await loadUserProfile(data.user.id)
-        console.log('User profile loaded, current user state:', loadedUser)
-        return loadedUser
-      }
-      return undefined
-    } catch (error) {
-      console.error('Sign in error:', error)
-      throw error
-    } finally {
-      setIsLoading(false)
-    }
+  const getAccessToken = useCallback(async () => {
+    const {
+      data: { session: current },
+    } = await supabase.auth.getSession()
+    return current?.access_token ?? null
   }, [])
 
-  const signInWithGoogle = useCallback(async () => {
-    setIsLoading(true)
-    try {
-      console.log('Attempting sign in with Google')
-      const { data, error } = await supabase.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: `${window.location.origin}/auth/callback`
-        }
-      })
-
-      if (error) {
-        console.error('Google sign in error:', error)
-        throw error
-      }
-
-      console.log('Google sign in initiated:', data)
-    } catch (error) {
-      console.error('Google sign in error:', error)
-      throw error
-    } finally {
-      setIsLoading(false)
-    }
-  }, [])
-
-  const signUp = useCallback(
-    async (data: {
-      email: string
-      password: string
-      name: string
-      role: "researcher" | "staff" | "investor"
-      university?: string
-    }) => {
+  const signIn = useCallback(
+    async (email: string, password: string) => {
       setIsLoading(true)
       try {
-        console.log('Attempting sign up with email:', data.email)
-        
-        // Check cooldown
-        const cooldownRemaining = getCooldownRemaining()
-        if (cooldownRemaining > 0) {
-          const minutes = Math.ceil(cooldownRemaining / 60000)
-          throw new Error(`Please wait ${minutes} minute${minutes > 1 ? 's' : ''} before trying again.`)
-        }
-
-        // Check if email already exists in profiles
-        const { data: existingProfile } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('email', data.email)
-          .single()
-
-        if (existingProfile) {
-          throw new Error('This email is already registered. Please sign in instead.')
-        }
-
-        const { data: authData, error: authError } = await supabase.auth.signUp({
-          email: data.email,
-          password: data.password,
-        })
-
-        if (authError) {
-          console.error('Sign up auth error:', authError)
-          // Handle rate limit errors more specifically
-          if (authError.message.includes('rate limit') || 
-              authError.message.includes('too many requests') ||
-              authError.message.includes('Too many requests')) {
-            setCooldown()
-            throw new Error('Sign up rate limit reached. Please wait 5-10 minutes before trying again, or use a different email address.')
-          }
-          if (authError.message.includes('User already registered')) {
-            throw new Error('This email is already registered. Please sign in instead.')
-          }
-          throw authError
-        }
-
-        console.log('Sign up auth successful, creating profile')
-        if (authData.user) {
-          // Create profile
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .insert({
-              id: authData.user.id,
-              email: data.email,
-              name: data.name,
-              role: data.role,
-              university: data.university || null,
-              wallet_address: null,
-            })
-
-          if (profileError) {
-            // If profile creation fails, try to delete the auth user to avoid partial state
-            await supabase.auth.admin.deleteUser(authData.user.id)
-            throw profileError
-          }
-
-          const newUser: User = {
-            id: authData.user.id,
-            email: data.email,
-            name: data.name,
-            role: data.role,
-            walletAddress: null,
-            university: data.university || null,
-          }
-          setUser(newUser)
-
-          // Clear cooldown on success
-          clearCooldown()
-          return newUser
+        const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+        if (error) throw new Error(describeAuthError(error))
+        if (data.user) {
+          const loaded = await ensureProfile(data.user)
+          return loaded ?? undefined
         }
         return undefined
-      } catch (error) {
-        console.error('Sign up error:', error)
-        throw error
       } finally {
         setIsLoading(false)
       }
     },
-    []
+    [ensureProfile],
+  )
+
+  const signInWithGoogle = useCallback(async (next?: string) => {
+    const callback = new URL("/auth/callback", window.location.origin)
+    if (next) callback.searchParams.set("next", next)
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        redirectTo: callback.toString(),
+        queryParams: { access_type: "offline", prompt: "select_account" },
+      },
+    })
+    if (error) throw new Error(describeAuthError(error))
+  }, [])
+
+  const signUp = useCallback(
+    async (data: SignUpInput): Promise<SignUpResult> => {
+      setIsLoading(true)
+      try {
+        const role: SelfServiceRole = isSelfServiceRole(data.role) ? data.role : "researcher"
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: data.email,
+          password: data.password,
+          options: {
+            emailRedirectTo: `${window.location.origin}/auth/callback`,
+            data: {
+              name: data.name,
+              full_name: data.name,
+              role,
+              university: data.university || null,
+            },
+          },
+        })
+
+        if (authError) throw new Error(describeAuthError(authError))
+
+        // Supabase returns a user with an empty identities array when the
+        // email is already registered (and confirmation is enabled).
+        if (authData.user && Array.isArray(authData.user.identities) && authData.user.identities.length === 0) {
+          throw new Error("This email is already registered. Please sign in instead.")
+        }
+
+        if (!authData.session) {
+          return { user: null, needsEmailConfirmation: true }
+        }
+
+        setSession(authData.session)
+        const loaded = authData.user ? await ensureProfile(authData.user) : null
+        return { user: loaded, needsEmailConfirmation: false }
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [ensureProfile],
+  )
+
+  const updateProfile = useCallback(
+    async (patch: { name?: string; role?: SelfServiceRole; university?: string | null }) => {
+      const current = userRef.current
+      if (!current) throw new Error("Not signed in")
+      const update: Database["public"]["Tables"]["profiles"]["Update"] = {}
+      if (patch.name !== undefined) update.name = patch.name
+      if (patch.university !== undefined) update.university = patch.university
+      // Role changes are only allowed between self-service roles (never staff).
+      if (patch.role !== undefined && isSelfServiceRole(patch.role) && current.role !== "staff") {
+        update.role = patch.role
+      }
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(update)
+        .eq("id", current.id)
+        .select("*")
+        .single()
+      if (error) throw new Error(error.message)
+
+      // Clear the onboarding flag in auth metadata (best effort).
+      await supabase.auth.updateUser({ data: { [ONBOARDING_FLAG]: false } }).catch(() => undefined)
+
+      const {
+        data: { session: s },
+      } = await supabase.auth.getSession()
+      const next = { ...profileToUser(data, s?.user), needsOnboarding: false }
+      setUser(next)
+      return next
+    },
+    [],
   )
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
     setUser(null)
+    setSession(null)
   }, [])
 
   const connectWallet = useCallback(async () => {
     setIsLoading(true)
     try {
-      // Require email sign-in first
       if (!user) {
-        throw new Error('Please sign in with your email first before connecting your wallet.')
+        throw new Error("Please sign in with your email first before connecting your wallet.")
       }
 
-      // Check cooldown
-      const cooldownRemaining = getCooldownRemaining()
-      if (cooldownRemaining > 0) {
-        const minutes = Math.ceil(cooldownRemaining / 60000)
-        throw new Error(`Please wait ${minutes} minute${minutes > 1 ? 's' : ''} before trying again.`)
-      }
-
-      // Try to connect with injected connector (MetaMask, etc.) first
-      // If that fails, try walletConnect for mobile support
       try {
         await connect({ connector: injected() })
-      } catch (injectedError) {
-        console.log('Injected connector failed, trying walletConnect:', injectedError)
-        // Try walletConnect for mobile browsers
+      } catch {
+        const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
+        if (!projectId) {
+          throw new Error("No browser wallet found and WalletConnect is not configured.")
+        }
         try {
-          const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID
-          if (!projectId) {
-            throw new Error('WalletConnect Project ID not configured. Please add NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID to your environment variables.')
-          }
           await connect({ connector: walletConnect({ projectId }) })
         } catch (wcError) {
-          console.error('Both connectors failed:', wcError)
-          // Check if it's a timeout error
-          if (wcError instanceof Error && (wcError.message.includes('timeout') || wcError.message.includes('timed out'))) {
-            throw new Error('Wallet connection timed out. Please check your wallet connection and try again.')
+          if (wcError instanceof Error && /time(d)? ?out/i.test(wcError.message)) {
+            throw new Error("Wallet connection timed out. Please check your wallet and try again.")
           }
-          throw new Error('Failed to connect wallet. Please ensure you have a wallet installed or use a mobile wallet app.')
+          throw new Error("Failed to connect wallet. Please ensure you have a wallet installed or use a mobile wallet app.")
         }
       }
 
-      // Wait for the address to be available with timeout
-      const maxWaitTime = 10000 // 10 seconds
+      const maxWaitTime = 10000
       const startTime = Date.now()
-      
       while (!address && Date.now() - startTime < maxWaitTime) {
-        await new Promise(resolve => setTimeout(resolve, 100))
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+      if (!address) {
+        throw new Error("Wallet connection timeout. Please ensure your wallet is unlocked and try again.")
       }
 
-      if (address) {
-        const walletAddress = address
-
-        // Update existing user's wallet address
-        const { error } = await supabase
-          .from('profiles')
-          .update({ wallet_address: walletAddress })
-          .eq('id', user.id)
-
-        if (error) {
-          // Handle rate limit errors more specifically
-          if (error.message.includes('rate limit') ||
-              error.message.includes('too many requests') ||
-              error.message.includes('Too many requests')) {
-            setCooldown()
-            throw new Error('Wallet connection rate limit reached. Please wait 5-10 minutes before trying again.')
-          }
-          throw error
-        }
-
-        setUser({ ...user, walletAddress: walletAddress })
-      } else {
-        throw new Error('Wallet connection timeout. Please ensure your wallet is unlocked and try again.')
-      }
-
-      // Clear cooldown on success
-      clearCooldown()
-    } catch (error) {
-      console.error('Wallet connection error:', error)
-      throw error
+      const { error } = await supabase.from("profiles").update({ wallet_address: address }).eq("id", user.id)
+      if (error) throw new Error(describeAuthError(error))
+      setUser({ ...user, walletAddress: address })
     } finally {
       setIsLoading(false)
     }
   }, [user, connect, address])
 
   const disconnectWallet = useCallback(async () => {
-    try {
-      // Disconnect from wagmi
-      await disconnect()
-      
-      if (user && user.email.includes('@wallet.temp')) {
-        // Wallet-only user, sign out entirely
-        await signOut()
-      } else if (user) {
-        // Regular user, just remove wallet address
-        const { error } = await supabase
-          .from('profiles')
-          .update({ wallet_address: null })
-          .eq('id', user.id)
-
-        if (error) throw error
-
-        setUser({ ...user, walletAddress: null })
-      }
-    } catch (error) {
-      console.error('Wallet disconnection error:', error)
-      throw error
+    await disconnect()
+    if (user) {
+      const { error } = await supabase.from("profiles").update({ wallet_address: null }).eq("id", user.id)
+      if (error) throw new Error(error.message)
+      setUser({ ...user, walletAddress: null })
     }
-  }, [user, disconnect, signOut])
+  }, [user, disconnect])
 
   return (
     <AuthContext.Provider
       value={{
         user,
+        session,
         isLoading,
         signIn,
         signInWithGoogle,
         signUp,
         signOut,
+        refreshProfile,
+        ensureProfile,
+        updateProfile,
+        getAccessToken,
         connectWallet,
         disconnectWallet,
       }}

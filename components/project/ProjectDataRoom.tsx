@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "react-hot-toast"
+import { buildVdrMessage, generateVdrNonce } from "@/lib/web3/vdrMessage"
 
 interface Document {
   id: string
@@ -61,10 +62,10 @@ export function ProjectDataRoom({ projectId, iptAddress }: ProjectDataRoomProps)
   
   const { signMessage, isPending: isSigning } = useSignMessage({
     mutation: {
-      onSuccess: async (data: any, variables: any) => {
-        await verifyAccess(variables.message, data)
+      onSuccess: async (signature, variables) => {
+        await verifyAccess(typeof variables.message === "string" ? variables.message : "", signature)
       },
-      onError: (error: any) => {
+      onError: (error) => {
         console.error("Signature error:", error)
         toast.error("Failed to sign message")
         setIsCheckingAccess(false)
@@ -73,7 +74,7 @@ export function ProjectDataRoom({ projectId, iptAddress }: ProjectDataRoomProps)
   })
 
   const verifyAccess = async (message: string, signature: string) => {
-    if (!address || !selectedDoc) return
+    if (!address || !selectedDoc || !message) return
 
     setIsCheckingAccess(true)
     
@@ -98,7 +99,7 @@ export function ProjectDataRoom({ projectId, iptAddress }: ProjectDataRoomProps)
         setHasAccess(true)
         toast.success("Access granted - Document unlocked")
       } else {
-        const error = await response.json()
+        const error = await response.json().catch(() => ({}))
         toast.error(error.message || "Access denied")
         setHasAccess(false)
       }
@@ -121,9 +122,15 @@ export function ProjectDataRoom({ projectId, iptAddress }: ProjectDataRoomProps)
       return
     }
 
-    const timestamp = Math.floor(Date.now() / 1000)
-    const message = `Sign this request to access the MatDAO Secure Data Room for Project ${projectId} at timestamp: ${timestamp}`
-    
+    // Domain/project/address/nonce/timestamp-bound message (verified by /api/vdr).
+    const message = buildVdrMessage({
+      domain: window.location.host,
+      projectId: doc.projectId,
+      address,
+      nonce: generateVdrNonce(),
+      timestamp: Math.floor(Date.now() / 1000),
+    })
+
     signMessage({ message })
   }
 

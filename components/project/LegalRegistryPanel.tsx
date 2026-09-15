@@ -1,38 +1,34 @@
 "use client"
 
 import { useReadContract } from "wagmi"
-import { FileText, Building2, Clock, Hash, CheckCircle, AlertCircle } from "lucide-react"
+import { FileText, Building2, Hash, CheckCircle, AlertCircle } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-
-const IPNFT_ABI = [
-  "function legalAgreementHashes(uint256 tokenId) public view returns (bytes32)",
-  "function getActiveLicenses(uint256 tokenId) external view returns (address[] memory licensees, uint256[] memory expirationBlocks, bytes32[] memory licenseTermsHashes)"
-] as const
+import { IPNFT_ABI } from "@/lib/web3/abis"
+import { TARGET_CHAIN_ID } from "@/lib/web3/config"
 
 interface LegalRegistryPanelProps {
   ipnftAddress: string
-  tokenId: number
+  /** ERC-721 token id. Token ids start at 1; 0 is never a valid token. */
+  tokenId: number | bigint
 }
 
+const ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000"
+const isAddress = (a?: string): a is `0x${string}` => /^0x[0-9a-fA-F]{40}$/.test(a || "")
+
 export function LegalRegistryPanel({ ipnftAddress, tokenId }: LegalRegistryPanelProps) {
-  const { data: legalHash } = useReadContract({
-    address: ipnftAddress as `0x${string}`,
-    abi: IPNFT_ABI,
-    functionName: "legalAgreementHashes",
-    args: [BigInt(tokenId)],
-  })
+  const id = BigInt(tokenId)
+  const enabled = isAddress(ipnftAddress) && id > 0n
+  const readConfig = { address: ipnftAddress as `0x${string}`, abi: IPNFT_ABI, chainId: TARGET_CHAIN_ID, query: { enabled } } as const
 
-  const { data: licenses } = useReadContract({
-    address: ipnftAddress as `0x${string}`,
-    abi: IPNFT_ABI,
-    functionName: "getActiveLicenses",
-    args: [BigInt(tokenId)],
-  })
+  const { data: legalHash } = useReadContract({ ...readConfig, functionName: "legalAgreementHashes", args: [id] })
+  const { data: licenses } = useReadContract({ ...readConfig, functionName: "getActiveLicenses", args: [id] })
 
-  type Licenses = readonly [readonly string[], readonly bigint[], readonly string[]]
-  const licenseData = licenses as Licenses | undefined
+  // bytes32(0) is what an unminted / unrecorded token returns - it is truthy as a string!
+  const hasLegalHash = Boolean(legalHash) && legalHash !== ZERO_HASH
+
+  const licenseData = licenses
   const hasActiveLicenses = Boolean(licenseData?.[0]?.length)
 
   return (
@@ -52,8 +48,8 @@ export function LegalRegistryPanel({ ipnftAddress, tokenId }: LegalRegistryPanel
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-medium text-foreground">Legal Agreement Hash</h3>
             <Badge variant="outline">
-              <CheckCircle className="h-3 w-3 mr-1" />
-              {legalHash ? "ON-CHAIN HASH RECORDED" : "NOT RECORDED"}
+              {hasLegalHash ? <CheckCircle className="h-3 w-3 mr-1" /> : <AlertCircle className="h-3 w-3 mr-1" />}
+              {hasLegalHash ? "ON-CHAIN HASH RECORDED" : "NOT RECORDED"}
             </Badge>
           </div>
           
@@ -61,7 +57,11 @@ export function LegalRegistryPanel({ ipnftAddress, tokenId }: LegalRegistryPanel
             <div className="flex items-start gap-2">
               <Hash className="h-4 w-4 text-muted-foreground mt-0.5 flex-shrink-0" />
               <code className="text-xs text-muted-foreground break-all font-mono">
-                {(legalHash as string | undefined) || "No legal-agreement hash has been recorded for this token."}
+                {hasLegalHash
+                  ? legalHash
+                  : !enabled
+                    ? "No token id / contract configured for this project yet."
+                    : "No legal-agreement hash has been recorded for this token."}
               </code>
             </div>
           </div>

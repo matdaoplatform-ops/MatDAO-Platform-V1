@@ -1,49 +1,31 @@
 "use client"
 
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import toast from "react-hot-toast"
-
-const ESCROW_ABI = [
-  "function claimDividends() external nonReentrant"
-] as const
+import { useCallback } from "react"
+import type { Hash } from "viem"
+import { ESCROW_ABI } from "@/lib/web3/abis"
+import { requireAddress } from "@/lib/web3/config"
+import { useWeb3Tx } from "./useWeb3Tx"
 
 interface ClaimDividendsParams {
   escrowAddress: string
 }
 
+/** MatDAO_Escrow.claimDividends (IPT holders). */
 export function useClaimDividends() {
-  const { data: hash, writeContract, isPending, error } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash,
-  })
+  const { run, isPending, isSuccess, hash, error } = useWeb3Tx()
 
-  const claimDividends = async ({ escrowAddress }: ClaimDividendsParams) => {
-    try {
-      toast.loading("Claiming dividends...", { id: "claim-dividends" })
-      
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "claimDividends",
-      })
-      
-      toast.loading("Transaction confirming...", { id: "claim-dividends" })
-    } catch (err) {
-      console.error("Error claiming dividends:", err)
-      toast.error("Failed to claim dividends", { id: "claim-dividends" })
-      throw err
-    }
-  }
+  const claimDividends = useCallback(
+    async ({ escrowAddress }: ClaimDividendsParams): Promise<Hash> =>
+      run({ toastId: "claim-dividends", pending: "Claiming dividends...", success: "Dividends claimed!" }, (ctx) =>
+        ctx.writeAndWait({
+          address: requireAddress(escrowAddress, "Escrow"),
+          abi: ESCROW_ABI,
+          functionName: "claimDividends",
+          args: [],
+        }),
+      ),
+    [run],
+  )
 
-  if (isSuccess) {
-    toast.success("Dividends claimed successfully!", { id: "claim-dividends" })
-  }
-
-  return {
-    claimDividends,
-    isPending: isPending || isConfirming,
-    isSuccess,
-    error,
-    hash,
-  }
+  return { claimDividends, isPending, isSuccess, hash, error }
 }

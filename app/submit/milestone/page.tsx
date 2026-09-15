@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import {
   Plus,
   Check,
@@ -25,11 +25,15 @@ import {
   Target,
   ExternalLink,
   Loader2,
+  AlertCircle,
+  FolderOpen,
 } from "lucide-react"
+import toast from "react-hot-toast"
 import { useAuth } from "@/context/auth-context"
 import { supabase } from "@/lib/supabase/client"
 import { fetchVerifications } from "@/lib/trl-services/api"
-import { loadUserData } from "@/lib/trl-services/storage"
+import { RequireAuth } from "@/components/auth/require-auth"
+import { PROJECT_STATUS_LABELS } from "@/lib/supabase/client"
 import type { SubmittedMilestone, VerificationTask } from "@/lib/trl-services/types"
 
 /* ------------------------------------------------------------------ */
@@ -72,16 +76,29 @@ const riskOptions = [
   { label: "IP", icon: CircleAlert },
 ]
 
-const trlSteps = [
-  { trl: "TRL 4", label: "In Progress", status: "active" },
-  { trl: "TRL 5", label: "Next Target", status: "upcoming" },
-  { trl: "TRL 6", label: "Future Plan", status: "future" },
-]
+function buildTrlSteps(currentTrl: number) {
+  const base = Math.min(Math.max(currentTrl, 1), 7)
+  return [
+    { trl: `TRL ${base}`, label: "In Progress", status: "active" },
+    { trl: `TRL ${base + 1}`, label: "Next Target", status: "upcoming" },
+    { trl: `TRL ${base + 2}`, label: "Future Plan", status: "future" },
+  ]
+}
 
-const trlTemplates: Record<string, { budget: string; duration: string }> = {
-  "TRL 4": { budget: "$35k to $50k", duration: "8-12 weeks" },
-  "TRL 5": { budget: "$50k to $120k", duration: "12-20 weeks" },
-  "TRL 6": { budget: "$120k to $250k", duration: "16-24 weeks" },
+/** Indicative budget / duration envelopes per TRL band. */
+function trlTemplate(trl: number): { budget: string; duration: string } {
+  if (trl <= 3) return { budget: "$15k to $35k", duration: "6-10 weeks" }
+  if (trl === 4) return { budget: "$35k to $50k", duration: "8-12 weeks" }
+  if (trl === 5) return { budget: "$50k to $120k", duration: "12-20 weeks" }
+  if (trl === 6) return { budget: "$120k to $250k", duration: "16-24 weeks" }
+  return { budget: "$250k+", duration: "20-24 weeks" }
+}
+
+interface ProjectSummary {
+  id: string
+  title: string
+  trl: number
+  status: string
 }
 
 /* ------------------------------------------------------------------ */
@@ -89,28 +106,69 @@ const trlTemplates: Record<string, { budget: string; duration: string }> = {
 /* ------------------------------------------------------------------ */
 
 export default function MilestoneBuilderPage() {
+  return (
+    <RequireAuth>
+      <Suspense fallback={null}>
+        <MilestoneBuilder />
+      </Suspense>
+    </RequireAuth>
+  )
+}
+
+function MilestoneBuilder() {
   const { user } = useAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const projectId = searchParams.get("projectId")
   const [recommendedMilestones, setRecommendedMilestones] = useState<SubmittedMilestone[]>([])
   const [auditorResults, setAuditorResults] = useState<VerificationTask[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [projectId, setProjectId] = useState<string | null>(null)
+  const [project, setProject] = useState<ProjectSummary | null>(null)
+  const [projectLoading, setProjectLoading] = useState(true)
+  const [myProjects, setMyProjects] = useState<ProjectSummary[]>([])
+
+  // Load the target project (for its real TRL) or, without a projectId, the
+  // user's projects so they can pick one.
+  useEffect(() => {
+    if (!user) return
+    let cancelled = false
+    setProjectLoading(true)
+    const run = async () => {
+      if (projectId) {
+        const { data } = await supabase
+          .from("projects")
+          .select("id, title, trl, status")
+          .eq("id", projectId)
+          .maybeSingle()
+        if (!cancelled) setProject(data ?? null)
+      } else {
+        const { data } = await supabase
+          .from("projects")
+          .select("id, title, trl, status")
+          .eq("researcher_id", user.id)
+          .order("created_at", { ascending: false })
+        if (!cancelled) setMyProjects(data ?? [])
+      }
+      if (!cancelled) setProjectLoading(false)
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [user, projectId])
 
   useEffect(() => {
-    // Get projectId from URL
-    const urlParams = new URLSearchParams(window.location.search)
-    const pid = urlParams.get('projectId')
-    setProjectId(pid)
-
-    if (user) {
-      // Load from Supabase instead of local storage
-      fetchSubmittedMilestones()
-    }
+    if (user) fetchSubmittedMilestones()
     fetchVerifications()
       .then(setAuditorResults)
       .catch(() => setAuditorResults([]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
+
+  const currentTrl = project?.trl ?? 4
+  const trlSteps = useMemo(() => buildTrlSteps(currentTrl), [currentTrl])
+  const template = trlTemplate(currentTrl)
 
   const fetchSubmittedMilestones = async () => {
     if (!user) return
@@ -136,7 +194,7 @@ export default function MilestoneBuilderPage() {
           status: m.status,
           submittedAt: m.submitted_at,
           submittedBy: m.submitted_by,
-          verificationId: m.verification_id,
+          verificationId: m.verification_id ?? undefined,
         }))
         setRecommendedMilestones(transformed)
       }
@@ -201,8 +259,14 @@ export default function MilestoneBuilderPage() {
   }
 
   const handleSubmitMilestones = async () => {
-    if (!user || !projectId) {
-      setError("Please sign in and ensure you have a project ID")
+    if (!user) return
+    if (!projectId || !project) {
+      setError("Pick a project first — milestones are always linked to a submitted project.")
+      return
+    }
+    const filled = milestones.filter((m) => m.title.trim())
+    if (filled.length === 0) {
+      setError("Add at least one milestone with a title.")
       return
     }
 
@@ -210,38 +274,26 @@ export default function MilestoneBuilderPage() {
     setError(null)
 
     try {
-      // Get project title
-      const { data: projectData } = await supabase
-        .from('projects')
-        .select('title')
-        .eq('id', projectId)
-        .single()
+      const projectTitle = project.title
 
-      const projectTitle = projectData?.title || "Unknown Project"
-
-      // Submit each milestone
-      for (const milestone of milestones) {
-        if (!milestone.title) continue
-
-        const { error: milestoneError } = await supabase
-          .from('submitted_milestones')
-          .insert({
-            user_id: user.id,
-            project_id: projectId,
-            project_title: projectTitle,
-            milestone_key: milestone.id.toString(),
-            milestone_label: milestone.title,
-            description: milestone.description,
-            timeline: milestone.duration,
-            status: 'future',
-            submitted_by: user.name || user.email,
-          })
-
-        if (milestoneError) throw milestoneError
-      }
+      // One insert for all milestones: either every row lands or none does.
+      const { error: milestoneError } = await supabase.from("submitted_milestones").insert(
+        filled.map((milestone) => ({
+          user_id: user.id,
+          project_id: projectId,
+          project_title: projectTitle,
+          milestone_key: milestone.id.toString(),
+          milestone_label: milestone.title.trim(),
+          description: milestone.description,
+          timeline: milestone.duration,
+          status: "future" as const,
+          submitted_by: user.name || user.email,
+        })),
+      )
+      if (milestoneError) throw milestoneError
 
       // Update project development_timeline
-      const timelineData = milestones.map(m => ({
+      const timelineData = filled.map(m => ({
         key: m.id.toString(),
         label: m.title,
         description: m.description,
@@ -258,14 +310,12 @@ export default function MilestoneBuilderPage() {
 
       if (updateError) throw updateError
 
-      // Refresh milestones
       await fetchSubmittedMilestones()
-
-      // Navigate to dashboard
-      router.push('/researcher-dashboard')
+      toast.success(`${filled.length} milestone${filled.length === 1 ? "" : "s"} saved`)
+      router.push("/researcher-dashboard")
     } catch (err) {
-      console.error('Error submitting milestones:', err)
-      setError(err instanceof Error ? err.message : 'Failed to submit milestones')
+      console.error("Error submitting milestones:", err)
+      setError(err instanceof Error ? err.message : "Failed to submit milestones")
     } finally {
       setLoading(false)
     }
@@ -289,14 +339,69 @@ export default function MilestoneBuilderPage() {
         </div>
       </section>
 
+      {/* ---- Project context / picker ---- */}
+      <section className="border-b border-border/40 px-4 py-6">
+        <div className="mx-auto max-w-2xl">
+          {projectLoading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading project…
+            </div>
+          ) : projectId && project ? (
+            <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-card p-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Building milestones for</p>
+                <p className="truncate text-sm font-semibold text-foreground">{project.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  Currently TRL {project.trl} · {PROJECT_STATUS_LABELS[project.status as keyof typeof PROJECT_STATUS_LABELS] ?? project.status}
+                </p>
+              </div>
+              <Link href="/submit/milestone" className="text-xs text-primary hover:underline">
+                Choose another project
+              </Link>
+            </div>
+          ) : projectId ? (
+            <div className="rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+              We could not find that project (or you do not have access to it).{" "}
+              <Link href="/submit/milestone" className="underline">
+                Pick one of your projects
+              </Link>
+              .
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/60 bg-card p-5">
+              <div className="mb-3 flex items-center gap-2">
+                <FolderOpen className="h-4 w-4 text-primary" />
+                <h2 className="text-sm font-semibold text-foreground">Which project are these milestones for?</h2>
+              </div>
+              {myProjects.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  You have not submitted a project yet.{" "}
+                  <Link href="/submit" className="font-medium text-primary hover:underline">
+                    Submit your first project
+                  </Link>{" "}
+                  and come back here to plan its milestones.
+                </div>
+              ) : (
+                <ul className="space-y-2">
+                  {myProjects.map((p) => (
+                    <li key={p.id}>
+                      <Link
+                        href={`/submit/milestone?projectId=${p.id}`}
+                        className="flex items-center justify-between rounded-lg border border-border/60 bg-secondary/20 px-4 py-3 text-sm transition-colors hover:border-primary/50 hover:bg-secondary/40"
+                      >
+                        <span className="min-w-0 truncate font-medium text-foreground">{p.title}</span>
+                        <span className="ml-3 shrink-0 text-xs text-muted-foreground">TRL {p.trl}</span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* ---- AI-Recommended Milestones & Auditor Results ---- */}
-      {error && (
-        <section className="border-b border-border/40 bg-destructive/10 px-4 py-6">
-          <div className="mx-auto max-w-3xl">
-            <p className="text-sm text-destructive">{error}</p>
-          </div>
-        </section>
-      )}
       {(recommendedMilestones.length > 0 || auditorResults.length > 0) && (
         <section className="border-b border-border/40 bg-secondary/20 px-4 py-10">
           <div className="mx-auto max-w-3xl space-y-8">
@@ -467,7 +572,7 @@ export default function MilestoneBuilderPage() {
                         {milestone.title || "New Milestone"}
                       </p>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>TRL 4</span>
+                        <span>TRL {currentTrl}</span>
                         <span className="text-border">|</span>
                         <span>
                           {mIndex === 0 ? "In Progress" : "Draft"}
@@ -480,7 +585,7 @@ export default function MilestoneBuilderPage() {
                     {mIndex === 0 && (
                       <>
                         <span className="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-0.5 text-xs font-medium text-accent">
-                          TRL 4
+                          TRL {currentTrl}
                         </span>
                         <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
                           In Progress
@@ -575,7 +680,7 @@ export default function MilestoneBuilderPage() {
                           placeholder="E.g. Reproduce supercapacitor performance in 3 independent lab tests within +/-10% variance"
                         />
                         <p className="text-xs text-muted-foreground">
-                          TRL 4 milestone template: {trlTemplates["TRL 4"].budget}
+                          TRL {currentTrl} milestone template: {template.budget}
                         </p>
                       </div>
 
@@ -629,7 +734,7 @@ export default function MilestoneBuilderPage() {
                         </div>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        TRL 4 milestone template: {trlTemplates["TRL 4"].duration}
+                        TRL {currentTrl} milestone template: {template.duration}
                       </p>
 
                       {/* Risk Category */}
@@ -710,11 +815,17 @@ export default function MilestoneBuilderPage() {
 
           {/* Submit CTA */}
           <div className="mt-6 flex flex-col items-center gap-3">
+            {error && (
+              <div role="alert" className="flex w-full items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
             <button
               type="button"
               onClick={handleSubmitMilestones}
-              disabled={loading}
-              className="rounded-full bg-primary px-8 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+              disabled={loading || !projectId || !project}
+              className="inline-flex items-center rounded-full bg-primary px-8 py-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
               {loading ? (
                 <>

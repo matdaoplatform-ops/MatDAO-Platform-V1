@@ -1,54 +1,76 @@
 "use client"
 
-import { useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import toast from "react-hot-toast"
+import { useCallback } from "react"
+import { keccak256, parseEventLogs, toHex, type Hash } from "viem"
+import { IPNFT_ABI } from "@/lib/web3/abis"
+import { CONTRACT_ADDRESSES, requireAddress, type Address } from "@/lib/web3/config"
+import { Web3UserError, isZeroAddress } from "@/lib/web3/tx"
+import { useWeb3Tx } from "./useWeb3Tx"
 
-const MATDAO_IPNFT_ABI = [
-  "function mintIP(address researcher, string _tokenURI) public onlyOwner returns (uint256)",
-  "event IPNFTMinted(uint256 indexed tokenId, address indexed researcher, string tokenURI)"
-] as const
-
-interface MintIPNFTParams {
-  researcher: string
+export interface MintIPNFTParams {
+  /** Wallet that receives the IP-NFT. */
+  researcher: Address
+  /** ipfs://... metadata URI. */
   tokenURI: string
-  contractAddress: string
+  /** SHA-256/keccak of the legal agreement. Defaults to keccak256(tokenURI). */
+  legalHash?: Address
+  /** Defaults to NEXT_PUBLIC_MATDAO_IPNFT_ADDRESS. */
+  contractAddress?: Address
 }
 
-export function useMintIPNFT() {
-  const { data: hash, writeContract, isPending, error } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({
-    hash,
-  })
+export interface MintIPNFTResult {
+  hash: Hash
+  /** Parsed from the IPNFTMinted event; null if the log could not be decoded. */
+  tokenId: bigint | null
+}
 
-  const mintIPNFT = async ({ researcher, tokenURI, contractAddress }: MintIPNFTParams) => {
-    try {
-      toast.loading("Initiating IP-NFT mint...", { id: "mint-ipnft" })
-      
-      await writeContract({
-        address: contractAddress as `0x${string}`,
-        abi: MATDAO_IPNFT_ABI,
-        functionName: "mintIP",
-        args: [researcher as `0x${string}`, tokenURI],
+/**
+ * Mints an IP-NFT via MatDAO_IPNFT.mintIP(address,string,bytes32).
+ * The connected wallet must be the contract owner (checked via simulation
+ * before the wallet prompt, so the error is readable).
+ */
+export function useMintIPNFT(): {
+  mintIPNFT: (p: MintIPNFTParams) => Promise<MintIPNFTResult>
+  isPending: boolean
+  isSuccess: boolean
+  hash?: Hash
+  error: Error | null
+} {
+  const { run, isPending, isSuccess, hash, error } = useWeb3Tx()
+
+  const mintIPNFT = useCallback(
+    async ({ researcher, tokenURI, legalHash, contractAddress }: MintIPNFTParams): Promise<MintIPNFTResult> => {
+      return run({ toastId: "mint-ipnft", pending: "Preparing IP-NFT mint...", success: "IP-NFT minted successfully!" }, async (ctx) => {
+        const contract = requireAddress(contractAddress ?? CONTRACT_ADDRESSES.IPNFT, "IP-NFT contract")
+        if (isZeroAddress(researcher)) throw new Web3UserError("Researcher address is missing.")
+        if (!tokenURI) throw new Web3UserError("Token URI is missing.")
+        const hashArg = (legalHash ?? keccak256(toHex(tokenURI))) as `0x${string}`
+
+        ctx.status("Confirm the mint in your wallet...")
+        const txHash = await ctx.write({
+          address: contract,
+          abi: IPNFT_ABI,
+          functionName: "mintIP",
+          args: [researcher, tokenURI, hashArg],
+        })
+
+        ctx.status("Waiting for the mint to be mined...")
+        const receipt = await ctx.publicClient.waitForTransactionReceipt({ hash: txHash })
+        if (receipt.status !== "success") throw new Web3UserError(`Mint transaction ${txHash} reverted.`)
+
+        let tokenId: bigint | null = null
+        try {
+          const logs = parseEventLogs({ abi: IPNFT_ABI, eventName: "IPNFTMinted", logs: receipt.logs })
+          const minted = logs.find((l) => l.address.toLowerCase() === contract.toLowerCase()) ?? logs[0]
+          tokenId = minted ? minted.args.tokenId : null
+        } catch (e) {
+          console.warn("[useMintIPNFT] could not parse IPNFTMinted log", e)
+        }
+        return { hash: txHash, tokenId }
       })
-      
-      toast.loading("Transaction confirming...", { id: "mint-ipnft" })
-    } catch (err) {
-      console.error("Error minting IP-NFT:", err)
-      toast.error("Failed to mint IP-NFT", { id: "mint-ipnft" })
-      throw err
-    }
-  }
+    },
+    [run],
+  )
 
-  // Show success toast when transaction confirms
-  if (isSuccess) {
-    toast.success("IP-NFT minted successfully!", { id: "mint-ipnft" })
-  }
-
-  return {
-    mintIPNFT,
-    isPending: isPending || isConfirming,
-    isSuccess,
-    error,
-    hash,
-  }
+  return { mintIPNFT, isPending, isSuccess, hash, error }
 }

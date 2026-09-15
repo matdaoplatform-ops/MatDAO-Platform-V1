@@ -36,7 +36,7 @@ contract MatDAO_RWA3643 is ERC20, AccessControl, ERC20Pausable {
     // Events for compliance tracking
     event IdentityVerified(address indexed account, bool verified);
     event AccreditedInvestorStatus(address indexed account, bool accredited);
-    entityRegistered(address indexed account, bool registered);
+    event EntityRegistered(address indexed account, bool registered);
     event AccountFrozen(address indexed account, bool frozen);
     event OfferingStatusChanged(bool active, uint256 startTime, uint256 endTime);
     event ComplianceTransfer(address indexed from, address indexed to, uint256 amount);
@@ -94,7 +94,7 @@ contract MatDAO_RWA3643 is ERC20, AccessControl, ERC20Pausable {
      */
     function setRegisteredEntity(address account, bool registered) external onlyRole(COMPLIANCE_ROLE) {
         isRegisteredEntity[account] = registered;
-        emit entityRegistered(account, registered);
+        emit EntityRegistered(account, registered);
     }
     
     /**
@@ -172,11 +172,9 @@ contract MatDAO_RWA3643 is ERC20, AccessControl, ERC20Pausable {
             }
         }
         
-        // Check max supply constraint
-        if (totalSupply() + amount > maxTotalSupply) {
-            return false;
-        }
-        
+        // NOTE: the max-supply constraint is enforced in mint() only. Transfers
+        // never change totalSupply, so checking it here made every transfer
+        // fail once supply approached the cap.
         return true;
     }
     
@@ -209,7 +207,7 @@ contract MatDAO_RWA3643 is ERC20, AccessControl, ERC20Pausable {
      */
     function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
         require(totalSupply() + amount <= maxTotalSupply, "Exceeds max supply");
-        require(isIdentityVerified[to), "Recipient not identity verified");
+        require(isIdentityVerified[to], "Recipient not identity verified");
         require(isAccreditedInvestor[to] || isRegisteredEntity[to], "Recipient not qualified");
         _mint(to, amount);
     }
@@ -237,6 +235,18 @@ contract MatDAO_RWA3643 is ERC20, AccessControl, ERC20Pausable {
         _unpause();
     }
     
+    /**
+     * @dev Required override: both ERC20 and ERC20Pausable define this hook.
+     * ERC20Pausable enforces `whenNotPaused` on every mint/burn/transfer.
+     */
+    function _beforeTokenTransfer(
+        address from,
+        address to,
+        uint256 amount
+    ) internal override(ERC20, ERC20Pausable) {
+        super._beforeTokenTransfer(from, to, amount);
+    }
+
     /**
      * @dev Get comprehensive compliance status for an account
      * @param account Address to check

@@ -20,9 +20,18 @@ import type { UserPlatformData } from "@/lib/trl-services/types"
 import { formatUsd } from "@/lib/ai-studio/api"
 import { ConnectButton } from '@rainbow-me/rainbowkit'
 import { useAccount } from 'wagmi'
+import { RequireAuth } from "@/components/auth/require-auth"
 
 export default function ProfilePage() {
-  const { user, isLoading } = useAuth()
+  return (
+    <RequireAuth mode="prompt">
+      <ProfileContent />
+    </RequireAuth>
+  )
+}
+
+function ProfileContent() {
+  const { user } = useAuth()
   const { address, isConnected: walletConnected } = useAccount()
   const [copied, setCopied] = useState(false)
   const [platformData, setPlatformData] = useState<UserPlatformData | null>(null)
@@ -31,33 +40,7 @@ export default function ProfilePage() {
     if (user) setPlatformData(loadUserData(user.id))
   }, [user])
 
-  if (!user) {
-    return (
-      <div className="flex min-h-[calc(100vh-4rem)] flex-col items-center justify-center gap-6 px-4">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary">
-          <User className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <h1 className="text-2xl font-bold text-foreground">Not Signed In</h1>
-        <p className="text-center text-sm text-muted-foreground">
-          Sign in or connect your wallet to view your profile.
-        </p>
-        <div className="flex items-center gap-3">
-          <Link
-            href="/auth/sign-in"
-            className="rounded-full bg-primary px-6 py-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            Sign In
-          </Link>
-          <Link
-            href="/auth/sign-up"
-            className="rounded-full border border-border bg-card px-6 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-          >
-            Create Account
-          </Link>
-        </div>
-      </div>
-    )
-  }
+  if (!user) return null
 
   function handleCopyWallet() {
     if (user?.walletAddress) {

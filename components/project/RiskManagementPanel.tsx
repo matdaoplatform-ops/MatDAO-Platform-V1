@@ -1,85 +1,74 @@
 "use client"
 
-import { useState } from "react"
-import { useAccount } from "wagmi"
-import { useReadContract, useWriteContract, useWaitForTransactionReceipt } from "wagmi"
-import { parseUnits } from "viem"
+import { useAccount, useReadContract } from "wagmi"
+import { formatUnits } from "viem"
 import { AlertTriangle, Shield, DollarSign, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { toast } from "react-hot-toast"
-
-const ESCROW_ABI = [
-  "function toggleProjectFailure() external onlyOwner",
-  "function claimEmergencyRefund() external nonReentrant",
-  "function getEmergencyRefundEstimate(address user) public view returns (uint256)",
-  "function isProjectFailed() public view returns (bool)",
-  "function fundingToken() public view returns (address)"
-] as const
+import { ESCROW_ABI } from "@/lib/web3/abis"
+import { TARGET_CHAIN_ID, USDC_DECIMALS } from "@/lib/web3/config"
+import { useEmergencyRefund } from "@/lib/web3/hooks/useEmergencyRefund"
+import { useToggleProjectFailure } from "@/lib/web3/hooks/useToggleProjectFailure"
 
 interface RiskManagementPanelProps {
   escrowAddress: string
+  /**
+   * Force-show the admin controls. When omitted the panel checks the
+   * connected wallet against the escrow's on-chain `owner()`.
+   */
   isAdmin?: boolean
 }
 
-export function RiskManagementPanel({ escrowAddress, isAdmin = false }: RiskManagementPanelProps) {
+const isAddress = (a?: string): a is `0x${string}` => /^0x[0-9a-fA-F]{40}$/.test(a || "")
+
+export function RiskManagementPanel({ escrowAddress, isAdmin: isAdminProp }: RiskManagementPanelProps) {
   const { address } = useAccount()
-  const { data: isProjectFailed } = useReadContract({
-    address: escrowAddress as `0x${string}`,
-    abi: ESCROW_ABI,
-    functionName: "isProjectFailed",
-  })
-  
-  const { data: refundEstimate } = useReadContract({
-    address: escrowAddress as `0x${string}`,
-    abi: ESCROW_ABI,
+  const hasEscrow = isAddress(escrowAddress)
+  const escrow = escrowAddress as `0x${string}`
+  const readConfig = { address: escrow, abi: ESCROW_ABI, chainId: TARGET_CHAIN_ID, query: { enabled: hasEscrow } } as const
+
+  const { data: isProjectFailed, refetch: refetchFailed } = useReadContract({ ...readConfig, functionName: "isProjectFailed" })
+  const { data: projectFunded } = useReadContract({ ...readConfig, functionName: "projectFunded" })
+  const { data: owner } = useReadContract({ ...readConfig, functionName: "owner" })
+
+  const { data: refundEstimate, refetch: refetchEstimate } = useReadContract({
+    ...readConfig,
     functionName: "getEmergencyRefundEstimate",
-    args: address ? [address as `0x${string}`] : undefined,
-    query: { enabled: Boolean(address && (isProjectFailed as boolean | undefined)) },
+    args: address ? [address] : undefined,
+    query: { enabled: hasEscrow && Boolean(address && isProjectFailed) },
   })
 
-  const { data: hash, writeContract, isPending } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash })
+  const { toggleProjectFailure, isPending: isToggling } = useToggleProjectFailure()
+  const { claimEmergencyRefund, isPending: isRefunding } = useEmergencyRefund()
+  const isPending = isToggling || isRefunding
+
+  const isOwner = Boolean(address && owner && address.toLowerCase() === owner.toLowerCase())
+  const isAdmin = isAdminProp ?? isOwner
 
   const handleToggleFailure = async () => {
     try {
-      toast.loading("Declaring project failure...", { id: "toggle-failure" })
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "toggleProjectFailure",
-      })
-      toast.loading("Transaction confirming...", { id: "toggle-failure" })
-    } catch (error) {
-      console.error("Error toggling project failure:", error)
-      toast.error("Failed to declare project failure", { id: "toggle-failure" })
+      await toggleProjectFailure({ escrowAddress })
+      void refetchFailed()
+    } catch {
+      // toast shown by hook
     }
   }
 
   const handleClaimRefund = async () => {
     try {
-      toast.loading("Claiming emergency refund...", { id: "claim-refund" })
-      await writeContract({
-        address: escrowAddress as `0x${string}`,
-        abi: ESCROW_ABI,
-        functionName: "claimEmergencyRefund",
-      })
-      toast.loading("Transaction confirming...", { id: "claim-refund" })
-    } catch (error) {
-      console.error("Error claiming refund:", error)
-      toast.error("Failed to claim refund", { id: "claim-refund" })
+      // The hook approves the caller's full IPT balance first (if needed) and waits for it.
+      await claimEmergencyRefund({ escrowAddress })
+      void refetchEstimate()
+    } catch {
+      // toast shown by hook
     }
   }
 
-  if (isSuccess) {
-    toast.success("Transaction completed successfully!", { id: isPending ? "toggle-failure" : "claim-refund" })
-  }
+  const refundAmount = refundEstimate ? Number(formatUnits(refundEstimate, USDC_DECIMALS)) : 0
 
-  const refundAmount = refundEstimate ? Number(refundEstimate) / 1e6 : 0
-
-  const projectFailed = Boolean(isProjectFailed as boolean | undefined)
-  const refund = refundEstimate as bigint | undefined
+  const projectFailed = Boolean(isProjectFailed)
+  const refund = refundEstimate
 
   if (!projectFailed && !isAdmin) {
     return null
@@ -130,10 +119,10 @@ export function RiskManagementPanel({ escrowAddress, isAdmin = false }: RiskMana
             {address && (
               <Button
                 onClick={handleClaimRefund}
-                disabled={isPending || isConfirming || !refund || refund === 0n}
+                disabled={isPending || !refund || refund === 0n}
                 className="w-full bg-red-600 hover:bg-red-700"
               >
-                {isPending || isConfirming ? (
+                {isRefunding ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Processing...
@@ -155,19 +144,23 @@ export function RiskManagementPanel({ escrowAddress, isAdmin = false }: RiskMana
                       Emergency Refund Activation
                     </p>
                     <p className="text-sm text-yellow-700 dark:text-yellow-300 mt-1">
-                      This will activate the emergency refund mechanism, allowing investors to burn their IPT tokens and claim a proportional share of remaining escrow funds. This action cannot be undone.
+                      This will activate the emergency refund mechanism, allowing investors to surrender their IPT tokens and claim a proportional share of remaining escrow funds. This action cannot be undone.
                     </p>
+                    {!projectFunded && (
+                      <p className="text-xs text-yellow-700 dark:text-yellow-300 mt-1">Available once the funding goal has been reached.</p>
+                    )}
                   </div>
                 </div>
               </div>
 
               <Button
                 onClick={handleToggleFailure}
-                disabled={isPending || isConfirming}
+                disabled={isPending || !projectFunded}
+                title={!projectFunded ? "The project must be fully funded before it can be declared failed" : undefined}
                 variant="destructive"
                 className="w-full"
               >
-                {isPending || isConfirming ? (
+                {isToggling ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Processing...
