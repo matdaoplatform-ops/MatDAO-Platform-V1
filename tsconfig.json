@@ -36,6 +36,14 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "test",
+    "scripts",
+    "contracts",
+    "artifacts",
+    "cache",
+    "typechain-types",
+    "hardhat.config.ts",
+    "mat-dao-platform-frontend"
   ]
 }
