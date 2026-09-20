@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { useAuth } from "@/context/auth-context"
 import { roleDestination, type SelfServiceRole } from "@/lib/auth-routes"
 import { Mail, Lock, User, Building2, Loader2, MailCheck } from "lucide-react"
+import { EmailCodeForm } from "@/components/auth/email-code-form"
 
 const roles: { value: SelfServiceRole; label: string; description: string }[] = [
   { value: "researcher", label: "Researcher", description: "Submit and manage research projects" },
@@ -24,7 +25,7 @@ function GoogleIcon() {
 }
 
 export default function SignUpPage() {
-  const { signUp, signInWithGoogle, isLoading } = useAuth()
+  const { signUp, signInWithGoogle, isLoading, verifyEmailCode, resendEmailCode } = useAuth()
   const router = useRouter()
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
@@ -87,28 +88,23 @@ export default function SignUpPage() {
           <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10">
             <MailCheck className="h-7 w-7 text-primary" />
           </div>
-          <h1 className="mb-2 text-2xl font-bold text-foreground">Check your email</h1>
+          <h1 className="mb-2 text-2xl font-bold text-foreground">Enter your code</h1>
           <p className="text-sm text-muted-foreground">
-            We sent a confirmation link to <span className="font-medium text-foreground">{confirmationEmail}</span>.
-            Open it to activate your account — you will be signed in automatically.
+            We emailed a 6-digit code to <span className="font-medium text-foreground">{confirmationEmail}</span>.
+            Type it below and you are in — no link to click.
           </p>
+          <EmailCodeForm
+            email={confirmationEmail}
+            onVerify={verifyEmailCode}
+            onResend={resendEmailCode}
+            onVerified={(u) => router.push(roleDestination(u?.role ?? role))}
+          />
           <p className="mt-4 text-xs text-muted-foreground">
-            Nothing there? Check your spam folder, or{" "}
-            <button
-              type="button"
-              onClick={() => setConfirmationEmail(null)}
-              className="font-medium text-primary hover:underline"
-            >
-              try a different address
+            Wrong address?{" "}
+            <button type="button" onClick={() => setConfirmationEmail(null)} className="font-medium text-primary hover:underline">
+              Go back
             </button>
-            .
           </p>
-          <Link
-            href="/auth/sign-in"
-            className="mt-6 inline-block rounded-full border border-border bg-secondary/50 px-6 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
-          >
-            Back to sign in
-          </Link>
         </div>
       </div>
     )

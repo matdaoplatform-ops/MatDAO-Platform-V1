@@ -51,6 +51,10 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<User | undefined>
   signInWithGoogle: (next?: string) => Promise<void>
   signUp: (data: SignUpInput) => Promise<SignUpResult>
+  /** Confirm a new account with the 6-digit code from the confirmation email (no link click needed). */
+  verifyEmailCode: (email: string, code: string) => Promise<User | null>
+  /** Send a fresh confirmation code to an unconfirmed account. */
+  resendEmailCode: (email: string) => Promise<void>
   signOut: () => Promise<void>
   /** Re-read the profile row for the current session. */
   refreshProfile: () => Promise<User | null>
@@ -304,6 +308,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw new Error(describeAuthError(error))
   }, [])
 
+  const verifyEmailCode = useCallback(
+    async (email: string, code: string): Promise<User | null> => {
+      const token = code.replace(/\D/g, "")
+      if (token.length < 6) throw new Error("Enter the 6-digit code from the email.")
+      setIsLoading(true)
+      try {
+        // `signup` covers the confirmation email; fall back to `email` for
+        // accounts that were created earlier and re-sent a code.
+        let { data, error } = await supabase.auth.verifyOtp({ email, token, type: "signup" })
+        if (error) {
+          const retry = await supabase.auth.verifyOtp({ email, token, type: "email" })
+          data = retry.data
+          error = retry.error
+        }
+        if (error) {
+          const msg = /expired|invalid/i.test(error.message)
+            ? "That code is invalid or has expired. Request a new one and try again."
+            : describeAuthError(error)
+          throw new Error(msg)
+        }
+        if (data.session) setSession(data.session)
+        return data.user ? await ensureProfile(data.user) : null
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [ensureProfile],
+  )
+
+  const resendEmailCode = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+    })
+    if (error) throw new Error(describeAuthError(error))
+  }, [])
+
   const signUp = useCallback(
     async (data: SignUpInput): Promise<SignUpResult> => {
       setIsLoading(true)
@@ -442,6 +484,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signInWithGoogle,
         signUp,
+        verifyEmailCode,
+        resendEmailCode,
         signOut,
         refreshProfile,
         ensureProfile,

@@ -5,7 +5,8 @@ import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useAuth } from "@/context/auth-context"
 import { roleDestination, safeNextPath } from "@/lib/auth-routes"
-import { Mail, Lock, Loader2, Wallet, Sparkles, ArrowRight } from "lucide-react"
+import { Mail, Lock, Loader2, Wallet, Sparkles, ArrowRight, MailCheck } from "lucide-react"
+import { EmailCodeForm } from "@/components/auth/email-code-form"
 
 function GoogleIcon() {
   return (
@@ -19,7 +20,8 @@ function GoogleIcon() {
 }
 
 function SignInForm() {
-  const { signIn, signInWithGoogle, isLoading, connectWallet, user } = useAuth()
+  const { signIn, signInWithGoogle, isLoading, connectWallet, user, verifyEmailCode, resendEmailCode } = useAuth()
+  const [pendingEmail, setPendingEmail] = useState<string | null>(null)
   const router = useRouter()
   const searchParams = useSearchParams()
   const nextParam = searchParams.get("next")
@@ -62,7 +64,19 @@ function SignInForm() {
       }
       router.push(safeNextPath(nextParam, roleDestination(loggedInUser.role)))
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Sign in failed. Please try again.")
+      const message = err instanceof Error ? err.message : "Sign in failed. Please try again."
+      if (/not confirmed|confirm your email/i.test(message)) {
+        // Account exists but was never confirmed: send a fresh code and let
+        // the user finish here instead of hunting for the old email.
+        try {
+          await resendEmailCode(email.trim())
+        } catch {
+          /* the code form has its own resend button */
+        }
+        setPendingEmail(email.trim())
+        return
+      }
+      setError(message)
     } finally {
       setSubmitting(false)
     }
@@ -88,6 +102,34 @@ function SignInForm() {
   }
 
   const busy = isLoading || submitting
+
+  if (pendingEmail) {
+    return (
+      <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12">
+        <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card p-8 text-center">
+          <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl border border-primary/30 bg-primary/10">
+            <MailCheck className="h-7 w-7 text-primary" />
+          </div>
+          <h1 className="mb-2 text-2xl font-bold text-foreground">Confirm your email</h1>
+          <p className="text-sm text-muted-foreground">
+            This account was never confirmed. We just sent a 6-digit code to{" "}
+            <span className="font-medium text-foreground">{pendingEmail}</span> — enter it to finish signing in.
+          </p>
+          <EmailCodeForm
+            email={pendingEmail}
+            onVerify={verifyEmailCode}
+            onResend={resendEmailCode}
+            onVerified={(u) => router.push(safeNextPath(nextParam, roleDestination(u?.role ?? "researcher")))}
+          />
+          <p className="mt-4 text-xs text-muted-foreground">
+            <button type="button" onClick={() => setPendingEmail(null)} className="font-medium text-primary hover:underline">
+              Back to sign in
+            </button>
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-[calc(100vh-4rem)] items-center justify-center px-4 py-12 relative overflow-hidden">
