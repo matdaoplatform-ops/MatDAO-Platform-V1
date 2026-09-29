@@ -55,6 +55,12 @@ interface AuthContextType {
   verifyEmailCode: (email: string, code: string) => Promise<User | null>
   /** Send a fresh confirmation code to an unconfirmed account. */
   resendEmailCode: (email: string) => Promise<void>
+  /** Email a 6-digit password-reset code. */
+  sendPasswordResetCode: (email: string) => Promise<void>
+  /** Verify a password-reset code; on success the user has a recovery session. */
+  verifyPasswordResetCode: (email: string, code: string) => Promise<void>
+  /** Set a new password for the signed-in (or recovery) session. */
+  setNewPassword: (password: string) => Promise<User | null>
   signOut: () => Promise<void>
   /** Re-read the profile row for the current session. */
   refreshProfile: () => Promise<User | null>
@@ -346,6 +352,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (error) throw new Error(describeAuthError(error))
   }, [])
 
+  const sendPasswordResetCode = useCallback(async (email: string) => {
+    // Supabase's recovery email carries both a link and a 6-digit code; we use
+    // the code so nobody has to hunt for the right browser.
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/auth/reset-password`,
+    })
+    if (error) throw new Error(describeAuthError(error))
+  }, [])
+
+  const verifyPasswordResetCode = useCallback(async (email: string, code: string) => {
+    const token = code.replace(/\D/g, "")
+    if (token.length < 6) throw new Error("Enter the 6-digit code from the email.")
+    const { data, error } = await supabase.auth.verifyOtp({ email, token, type: "recovery" })
+    if (error) {
+      throw new Error(
+        /expired|invalid/i.test(error.message)
+          ? "That code is invalid or has expired. Request a new one and try again."
+          : describeAuthError(error),
+      )
+    }
+    if (data.session) setSession(data.session)
+  }, [])
+
+  const setNewPassword = useCallback(
+    async (password: string): Promise<User | null> => {
+      if (password.length < 6) throw new Error("Password must be at least 6 characters.")
+      const { data, error } = await supabase.auth.updateUser({ password })
+      if (error) throw new Error(describeAuthError(error))
+      return data.user ? await ensureProfile(data.user) : null
+    },
+    [ensureProfile],
+  )
+
   const signUp = useCallback(
     async (data: SignUpInput): Promise<SignUpResult> => {
       setIsLoading(true)
@@ -486,6 +525,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUp,
         verifyEmailCode,
         resendEmailCode,
+        sendPasswordResetCode,
+        verifyPasswordResetCode,
+        setNewPassword,
         signOut,
         refreshProfile,
         ensureProfile,

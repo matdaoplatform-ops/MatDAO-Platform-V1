@@ -9,10 +9,12 @@ interface EmailCodeFormProps {
   onVerify: (email: string, code: string) => Promise<User | null>
   onResend: (email: string) => Promise<void>
   onVerified: (user: User | null) => void
+  /** Label for the submit button (default: "Confirm & continue"). */
+  confirmLabel?: string
 }
 
 /** 6-digit confirmation-code entry used after sign-up (and for unconfirmed sign-ins). */
-export function EmailCodeForm({ email, onVerify, onResend, onVerified }: EmailCodeFormProps) {
+export function EmailCodeForm({ email, onVerify, onResend, onVerified, confirmLabel = "Confirm & continue" }: EmailCodeFormProps) {
   const [code, setCode] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
@@ -90,7 +92,7 @@ export function EmailCodeForm({ email, onVerify, onResend, onVerified }: EmailCo
         className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground transition-opacity disabled:opacity-50"
       >
         {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-        {busy ? "Verifying…" : "Confirm & continue"}
+        {busy ? "Verifying…" : confirmLabel}
       </button>
       <p className="text-xs text-muted-foreground">
         {resent ? "New code sent. " : "Nothing in your inbox? Check spam, or "}
