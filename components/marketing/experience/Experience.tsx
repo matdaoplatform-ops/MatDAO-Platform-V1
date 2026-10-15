@@ -5,6 +5,8 @@ import { Canvas } from "@react-three/fiber"
 import { scrollStore, useScrollStore, type Tier } from "@/store/scroll"
 import { World } from "./World"
 import { Effects } from "./Effects"
+import { Sets } from "./Sets"
+import { Corridor } from "./Corridor"
 
 const COUNTS: Record<Tier, number> = { high: 80_000, mid: 60_000, low: 36_000 }
 
@@ -19,6 +21,9 @@ function hasWebGL() {
 
 /** Device tier from cores, memory, screen and (when it answers in time) detect-gpu. */
 async function detectTier(): Promise<Tier> {
+  // Manual override for testing: ?tier=high|mid|low
+  const forced = new URLSearchParams(window.location.search).get("tier")
+  if (forced === "high" || forced === "mid" || forced === "low") return forced
   const mobile = window.matchMedia("(max-width: 767px)").matches || /Mobi|Android|iPhone/i.test(navigator.userAgent)
   const cores = navigator.hardwareConcurrency || 4
   const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8
@@ -61,6 +66,7 @@ export function Experience() {
   }, [])
 
   if (!tier) return null
+  const corridor = tier !== "low" && window.matchMedia("(min-width: 900px)").matches
   const frameloop = !visible ? "never" : entered && !reduced ? "always" : "demand"
   return (
     <Canvas
@@ -72,10 +78,13 @@ export function Experience() {
       onCreated={({ gl, scene }) => {
         gl.setClearColor("#05070d", 1)
         scene.background = null
+        document.documentElement.setAttribute("data-mkt-webgl", "")
       }}
     >
       <fogExp2 attach="fog" args={["#05070d", 0.028]} />
       <World count={COUNTS[tier]} />
+      <Sets tier={tier} />
+      {corridor ? <Corridor /> : null}
       <Effects tier={tier} />
     </Canvas>
   )

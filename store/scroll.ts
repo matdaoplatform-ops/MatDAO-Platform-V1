@@ -46,6 +46,11 @@ export interface ScrollState {
   /** Gallery: index of the card the camera should fly to (-1 = none). */
   galleryTarget: number
   galleryHover: number
+  /** Active gallery filter (field name) or null for all. */
+  galleryFilter: string | null
+  /** Labels for cards rendered inside the canvas (outside React context). */
+  galleryLabels: { trl: string; funded: string; view: string; sample: string } | null
+  galleryProjects: import("@/content/en").ProjectCard[]
 }
 
 export const scrollStore = createStore<ScrollState>(() => ({
@@ -62,6 +67,9 @@ export const scrollStore = createStore<ScrollState>(() => ({
   tier: "high",
   galleryTarget: -1,
   galleryHover: -1,
+  galleryFilter: null,
+  galleryLabels: null,
+  galleryProjects: [],
 }))
 
 export function useScrollStore<T>(selector: (s: ScrollState) => T): T {

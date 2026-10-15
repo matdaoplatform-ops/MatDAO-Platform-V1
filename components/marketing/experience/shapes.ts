@@ -36,7 +36,7 @@ export const ANCHOR: Record<ShapeId, Vec3> = {
   lattice: [1.3, -0.1, 0],
   shards: [0.6, 0.1, -6],
   molecule: [2.0, 0.1, -15],
-  sphere: [2.0, 0.1, -15],
+  sphere: [2.2, 0.15, -15],
   token: [2.0, 0.0, -15],
   field: [0, -2.2, -27],
   biochar: [2.0, -0.1, -31],
@@ -72,7 +72,7 @@ export const META: Record<ShapeId, Omit<ShapeMeta, "center">> = {
   molecule: { spin: 0.16, size: 1, glyph: 0, ember: 0, sway: 0, gain: 1 },
   sphere: { spin: 0.1, size: 1.9, glyph: 1, ember: 0, sway: 0, gain: 1.2 },
   token: { spin: 0.18, size: 0.95, glyph: 0, ember: 0, sway: 0, gain: 1 },
-  field: { spin: 0, size: 1, glyph: 0, ember: 0, sway: 1, gain: 0.95 },
+  field: { spin: 0, size: 1.25, glyph: 0, ember: 0, sway: 1, gain: 1.45 },
   biochar: { spin: 0.14, size: 1.05, glyph: 0, ember: 0, sway: 0, gain: 1 },
   substrate: { spin: 0.12, size: 1, glyph: 0, ember: 0, sway: 0, gain: 1 },
   flora: { spin: 0, size: 1.05, glyph: 0, ember: 0, sway: 1, gain: 0.95 },
@@ -371,7 +371,7 @@ function molecule(n: number): ShapeData {
 function sphere(n: number): ShapeData {
   const r = rng(41)
   const w = new Writer(n, ANCHOR.sphere)
-  const R = 1.55
+  const R = 1.2
   const surf = Math.floor(n * 0.66)
   const golden = Math.PI * (3 - Math.sqrt(5))
   for (let i = 0; i < surf; i++) {
@@ -393,10 +393,10 @@ function sphere(n: number): ShapeData {
     const s = Math.floor(r() * 9)
     const a0 = (s / 9) * Math.PI * 2
     const t = r()
-    const rr = R + (1 - t) * 3.2
+    const rr = R + (1 - t) * 2.2
     const a = a0 + t * 1.8
     const y = (s % 3 - 1) * 1.1 * (1 - t) + Math.sin(s) * 0.4 * (1 - t)
-    w.put([Math.cos(a) * rr + gauss(r) * 0.03, y + gauss(r) * 0.03, Math.sin(a) * rr + gauss(r) * 0.03], scale3(C.dataA, 0.5 + t * 0.8))
+    w.put([Math.cos(a) * rr + gauss(r) * 0.03, y + gauss(r) * 0.03, Math.sin(a) * rr + gauss(r) * 0.03], scale3(C.dataA, 0.3 + t * 0.6))
   }
   return { id: "sphere", pos: w.pos, col: w.col }
 }
@@ -448,15 +448,16 @@ function token(n: number): ShapeData {
     const t = r()
     w.put([ax + (bx - ax) * t, ay + (by - ay) * t, (r() * 2 - 1) * T], scale3(mixc(C.white, C.dataA, r() * 0.5), 1.1))
   }
-  // Halo arch behind and floor glow line.
-  const haloR = 2.35
+  // A faint glow line on the floor; the halo arch itself is a mesh (it must not spin with the token).
   while (!w.full) {
-    if (r() < 0.82) {
-      const a = Math.PI * (0.06 + r() * 0.88)
-      w.put([Math.cos(a) * haloR + gauss(r) * 0.012, Math.sin(a) * haloR - 0.75 + gauss(r) * 0.012, -0.9 + gauss(r) * 0.01], scale3(mixc(C.violet, C.dataA, r()), 0.85))
+    if (r() < 0.6) {
+      const k = Math.floor(r() * 6)
+      const [ax, ay] = hexPt(k), [bx, by] = hexPt(k + 1)
+      const t = r()
+      w.put([ax + (bx - ax) * t + gauss(r) * 0.02, ay + (by - ay) * t + gauss(r) * 0.02, (r() * 2 - 1) * T * 1.4], scale3(C.dataA, 0.5))
     } else {
       const x = (r() * 2 - 1) * 2.6
-      w.put([x, -1.75 + gauss(r) * 0.01, -0.6 + gauss(r) * 0.15], scale3(C.dataB, 0.35 * (1 - Math.abs(x) / 2.6)))
+      w.put([x, -1.75 + gauss(r) * 0.01, gauss(r) * 0.2], scale3(C.dataB, 0.3 * (1 - Math.abs(x) / 2.6)))
     }
   }
   return { id: "token", pos: w.pos, col: w.col }
@@ -595,10 +596,11 @@ function substrate(n: number): ShapeData {
 
 /** Corridor flora: particle blooms dissolving around each card, plus a sparse wall. */
 export const CORRIDOR = { z0: -38, z1: -58, radius: 3.3, cards: 7 }
-export function cardSlot(i: number): { pos: Vec3; side: number } {
+export function cardSlot(i: number): { pos: Vec3; side: number; rotY: number } {
   const z = CORRIDOR.z0 - 2.2 - i * ((CORRIDOR.z0 - CORRIDOR.z1 - 3) / (CORRIDOR.cards - 1))
-  const side = i % 2 ? 1 : -1
-  return { pos: [side * 1.25, (i % 3 - 1) * 0.35, z], side }
+  // Copy and filters live on the left, so the cards hang on the right half of the corridor.
+  const far = i % 2 === 1
+  return { pos: [far ? 2.05 : 0.8, [0.5, -0.45, 0.1][i % 3], z], side: 1, rotY: far ? -0.62 : -0.24 }
 }
 function flora(n: number): ShapeData {
   const r = rng(83)
@@ -609,7 +611,7 @@ function flora(n: number): ShapeData {
     const count = Math.floor((n * 0.72) / CORRIDOR.cards)
     for (let q = 0; q < count; q++) {
       // blooms clustered on the corridor wall behind/around the card
-      const th = (side > 0 ? 0 : Math.PI) + (r() - 0.5) * 1.6
+      const th = (r() < 0.72 ? (side > 0 ? 0 : Math.PI) : Math.PI) + (r() - 0.5) * 1.6
       const rad = CORRIDOR.radius * (0.82 + r() * 0.3)
       const fz = pos[2] + gauss(r) * 1.1
       const curl = Math.sin(fz * 3 + q) * 0.2

@@ -29,6 +29,7 @@ uniform vec4 uMetaB;
 uniform float uGainA;
 uniform float uGainB;
 uniform float uFog;
+uniform float uSwirl;
 
 attribute vec3 aPosA;
 attribute vec3 aPosB;
@@ -76,6 +77,11 @@ void main() {
     b += s * uMetaB.w;
   }
   vec3 p = mix(a, b, k);
+  // Mid-flight swirl about the destination's vertical axis: shapes spiral in rather than slide.
+  if (uSwirl > 0.0) {
+    float sw = sin(3.14159 * k) * uSwirl * (0.5 + aRandom);
+    p = rotY(p, uCenterB, sw);
+  }
 
   float ember = meta.z * step(0.86, aRandom);
   if (ember > 0.0) {
@@ -191,6 +197,7 @@ export function createParticleMaterial(pixelRatio: number) {
       uGlyphs: { value: null as THREE.Texture | null },
       uAlpha: { value: 1 },
       uFog: { value: 0.028 },
+      uSwirl: { value: 0.7 },
     },
   })
 }

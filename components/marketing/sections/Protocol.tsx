@@ -1,6 +1,8 @@
 "use client"
 
-import { useRef } from "react"
+import { useEffect, useRef } from "react"
+import { scrollStore, storyToScroll } from "@/store/scroll"
+import { scrollToTarget } from "../SmoothScroll"
 import { useI18n } from "../i18n"
 import { useCues, useSectionScrub } from "../cues"
 import { AccentText, orDash } from "../ui/text"
@@ -28,6 +30,33 @@ export function Protocol() {
     const active = STEP_WINDOWS.findIndex(([a, b]) => p >= a && p < b)
     rail.current?.querySelectorAll("li").forEach((li, i) => li.toggleAttribute("data-active", i === active))
   })
+
+  // The one place the page snaps: when scrolling settles inside the pinned
+  // steps, ease to the nearest step so a pillar is never left half-morphed.
+  useEffect(() => {
+    let lastY = -1
+    let still = 0
+    let snapped = -1
+    const centres = [0.17, 0.5, 0.835]
+    const id = window.setInterval(() => {
+      const s = scrollStore.getState()
+      if (s.reducedMotion || !s.entered) return
+      if (Math.abs(s.scrollY - lastY) > 0.5) {
+        lastY = s.scrollY
+        still = 0
+        snapped = -1
+        return
+      }
+      if (++still !== 3) return // ~240 ms after scrolling stops
+      const p = s.sections.protocol?.progress ?? -1
+      if (p <= 0.03 || p >= 0.97) return
+      const c = centres.reduce((a, b) => (Math.abs(b - p) < Math.abs(a - p) ? b : a))
+      if (Math.abs(c - p) < 0.012 || Math.abs(c - p) > 0.15 || snapped === c) return
+      snapped = c
+      scrollToTarget(storyToScroll("protocol", c, s), { duration: 0.9 })
+    }, 80)
+    return () => window.clearInterval(id)
+  }, [])
 
   return (
     <section ref={root} id="protocol" data-section="protocol" className="mkt-sec" style={{ height: "360vh" }} aria-labelledby="protocol-title">
