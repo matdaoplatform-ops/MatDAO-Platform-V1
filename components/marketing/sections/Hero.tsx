@@ -50,10 +50,13 @@ export function Hero() {
           <div className="mkt-hero-stamp">
             <LocalClock prefix={t.hero.locale} />
           </div>
+          {/* Only confirmed figures are shown; until there are any, the slot stays empty. */}
           <div className="mkt-stats">
-            {t.hero.stats.map((s) => (
-              <Stat key={s.label} value={s.value} label={s.label} />
-            ))}
+            {t.hero.stats
+              .filter((s) => s.value.trim() !== "")
+              .map((s) => (
+                <Stat key={s.label} value={s.value} label={s.label} />
+              ))}
           </div>
           <button type="button" className="mkt-chip" onClick={() => scrollToTarget("#problem")} data-cursor="hover">
             <span className="mkt-mono">{t.hero.scroll}</span>

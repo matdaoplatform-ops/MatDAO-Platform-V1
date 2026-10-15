@@ -256,6 +256,11 @@ html:lang(th) .mkt {
 .mkt-card-bar { height: 2px; background: var(--line); border-radius: 2px; overflow: hidden; }
 .mkt-card-bar > div { height: 100%; background: var(--data); transform-origin: 0 50%; }
 .mkt-card-link { justify-self: start; margin-top: 4px; }
+.mkt-card-open { border-style: dashed; border-color: rgba(255, 255, 255, 0.18); background: color-mix(in srgb, var(--surface) 40%, transparent); }
+.mkt-card-open .mkt-card-title { color: color-mix(in oklab, var(--text) 78%, transparent); }
+.mkt-card-open-badge { color: var(--catalyst-b); }
+.mkt-card-open-line { margin: 0; font-size: 14px; line-height: 1.5; color: var(--text-dim); max-width: 32ch; }
+.mkt-card-3d .mkt-card-open .mkt-card-title { font-size: 40px; }
 
 /* ---------------------------------------------------------------- paths */
 .mkt-paths { min-height: 110vh; padding: 18vh var(--gutter) 14vh; display: grid; align-content: center; }
@@ -282,17 +287,25 @@ html:lang(th) .mkt {
 .mkt-recognition { border-block: 1px solid var(--line); padding: 22px 0; }
 .mkt-recognition .mkt-marquee-item { font-family: var(--f-mono); font-size: clamp(16px, 1.6vw, 24px); letter-spacing: 0.06em; white-space: nowrap; }
 .mkt-marquee-sep { color: var(--catalyst-a); margin: 0 1.4em; }
-.mkt-team { padding: 0 var(--gutter); display: grid; gap: 18px; }
-.mkt-team ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
-.mkt-member { display: grid; gap: 6px; }
+.mkt-team { padding: 0 var(--gutter); display: grid; gap: 18px; position: relative; }
+/* Keeps names and roles legible while the particle ribbon passes behind them. */
+.mkt-team::before { content: ""; position: absolute; inset: -40px 0 -60px; z-index: -1; pointer-events: none; background: radial-gradient(80% 70% at 50% 55%, rgba(5, 7, 13, 0.82), rgba(5, 7, 13, 0.5) 60%, transparent); }
+.mkt-team ul { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.mkt-member { display: grid; gap: 4px; align-content: start; }
 .mkt-member-photo {
-  aspect-ratio: 4 / 5; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 8px; display: grid; place-items: center;
-  background: linear-gradient(160deg, #11172a, #070a12); filter: grayscale(1); transition: filter 0.6s;
-  color: var(--text-dim);
+  position: relative; aspect-ratio: 21 / 20; border-radius: 16px; border: 1px solid var(--line); margin-bottom: 10px; overflow: hidden;
+  background: linear-gradient(160deg, #11172a, #070a12);
 }
-.mkt-member:hover .mkt-member-photo { filter: grayscale(0); }
+.mkt-member-photo img {
+  width: 100%; height: 100%; object-fit: cover; display: block;
+  filter: grayscale(1) contrast(1.05) brightness(0.9); transform: scale(1.02);
+  transition: filter 0.6s ease, transform 0.9s var(--ease-out);
+}
+.mkt-member-photo::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(5, 7, 13, 0.45), transparent 45%); pointer-events: none; }
+.mkt-member:hover .mkt-member-photo img, .mkt-member:focus-within .mkt-member-photo img { filter: grayscale(0) contrast(1) brightness(1); transform: scale(1.05); }
 .mkt-member-name { margin: 0; font-size: 17px; font-weight: 400; }
-.mkt-member p.mkt-mono { margin: 0; }
+.mkt-member p.mkt-mono { margin: 0; font-size: 11px; letter-spacing: 0.06em; line-height: 1.45; }
+.mkt-member-focus { margin: 0; font-size: 13px; color: var(--text-dim); line-height: 1.4; }
 
 /* --------------------------------------------------------------- finale */
 .mkt-finale { display: grid; place-items: center; padding: 0; }
@@ -347,6 +360,9 @@ html:lang(th) .mkt {
 .mkt-cursor-ring { width: 32px; height: 32px; margin: -16px 0 0 -16px; border: 1px solid rgba(255, 255, 255, 0.45); }
 
 /* ------------------------------------------------------------- responsive */
+@media (max-width: 1200px) and (min-width: 901px) {
+  .mkt-team ul { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 @media (max-width: 900px) {
   .mkt { --nav-h: 64px; }
 
@@ -382,6 +398,7 @@ html:lang(th) .mkt {
 
   .mkt-paths-grid { grid-template-columns: 1fr; }
   .mkt-team ul { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mkt-member-focus { font-size: 12px; }
   .mkt-footer-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mkt-footer-bottom { flex-wrap: wrap; }
   .mkt-window-frame { width: calc(78vw + 22vw * var(--grow)); height: calc(52vh + 48vh * var(--grow)); }

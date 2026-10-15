@@ -16,6 +16,7 @@ export interface ProjectCard {
   trl: string
   /** 0..1, or null when unknown (renders "—"). */
   funded: number | null
+  /** No real project yet: renders as an "open slot" inviting a submission (no invented names). */
   placeholder: boolean
 }
 
@@ -111,15 +112,15 @@ export const en = {
     view: "View",
     trl: "TRL",
     funded: "Funded",
-    sample: "Sample listing",
+    open: "Open slot",
+    openTitle: "Your research here",
+    openLine: "Now accepting {field} research from university labs.",
+    openCta: "Submit your research",
     projects: [
       { id: "terra", title: "TERRA", field: "Agri-tech", institution: "Chulalongkorn University", trl: "", funded: null, placeholder: false },
-      { id: "p2", title: "[PROJECT NAME]", field: "Energy", institution: "[Institution]", trl: "", funded: null, placeholder: true },
-      { id: "p3", title: "[PROJECT NAME]", field: "Biomaterials", institution: "[Institution]", trl: "", funded: null, placeholder: true },
-      { id: "p4", title: "[PROJECT NAME]", field: "Nanomaterials", institution: "[Institution]", trl: "", funded: null, placeholder: true },
-      { id: "p5", title: "[PROJECT NAME]", field: "Energy", institution: "[Institution]", trl: "", funded: null, placeholder: true },
-      { id: "p6", title: "[PROJECT NAME]", field: "Biomaterials", institution: "[Institution]", trl: "", funded: null, placeholder: true },
-      { id: "p7", title: "[PROJECT NAME]", field: "Agri-tech", institution: "[Institution]", trl: "", funded: null, placeholder: true },
+      { id: "p2", title: "", field: "Energy", institution: "", trl: "", funded: null, placeholder: true },
+      { id: "p3", title: "", field: "Biomaterials", institution: "", trl: "", funded: null, placeholder: true },
+      { id: "p4", title: "", field: "Nanomaterials", institution: "", trl: "", funded: null, placeholder: true },
     ] as ProjectCard[],
     all: "Explore all research",
   },
@@ -144,15 +145,14 @@ export const en = {
       "THAILAND REPRESENTATIVE · STARTUP PROTOCOL CAMP",
     ],
     teamTitle: "Team",
-    // Fill in from the team page. Empty entries render as placeholders.
     team: [
-      { name: "", role: "" },
-      { name: "", role: "" },
-      { name: "", role: "" },
-      { name: "", role: "" },
+      { name: "Scott M.", role: "Chief Executive Officer", focus: "Tech strategy", photo: "/marketing/team/scott.webp" },
+      { name: "Trinyada S.", role: "Chief Business Officer", focus: "Project management", photo: "/marketing/team/trinyada.webp" },
+      { name: "Archawit C.", role: "Chief Design Officer", focus: "UI/UX, customer experience, ops", photo: "/marketing/team/archawit.webp" },
+      { name: "Supawill L.", role: "Chief Product Officer", focus: "Tech specialist", photo: "/marketing/team/supawill.webp" },
+      { name: "Sirawit A.", role: "Chief Marketing Officer", focus: "Public engagement", photo: "/marketing/team/sirawit.webp" },
+      { name: "Uttanon A.", role: "Chief Technology Officer", focus: "Web development", photo: "/marketing/team/uttanon.webp" },
     ],
-    namePlaceholder: "[Name]",
-    rolePlaceholder: "[Role]",
   },
   finale: {
     manifesto: ["FROM ATOM", "TO ASSET"],

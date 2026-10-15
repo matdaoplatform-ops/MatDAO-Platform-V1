@@ -9,13 +9,42 @@ import { useI18n } from "../i18n"
 import { useCues, useSectionScrub } from "../cues"
 import { AccentText, orDash } from "../ui/text"
 
-/** One research card. Used by the DOM track (mobile, fallback) and inside the 3D corridor. */
-export function ResearchCard({ p, labels, dim = false, plain = false }: { p: ProjectCard; labels: { trl: string; funded: string; view: string; sample: string }; dim?: boolean; /** plain <a> (for cards rendered outside the Next router, e.g. inside the 3D corridor) */ plain?: boolean }) {
+export type CardLabels = { trl: string; funded: string; view: string; open: string; openTitle: string; openLine: string; openCta: string }
+
+/**
+ * One research card. Used by the DOM track (mobile, fallback) and inside the 3D corridor.
+ * Cards without a real project yet render as an "open slot" that invites a submission,
+ * so no invented project names ever reach the page.
+ */
+export function ResearchCard({ p, labels, dim = false, plain = false }: { p: ProjectCard; labels: CardLabels; dim?: boolean; /** plain <a> (for cards rendered outside the Next router, e.g. inside the 3D corridor) */ plain?: boolean }) {
+  const href = p.placeholder ? "/submit" : "/project"
+  const cta = p.placeholder ? labels.openCta : labels.view
+  const link = plain ? (
+    <a href={href} className="mkt-link mkt-card-link" data-cursor="hover">
+      {cta} <ArrowRight aria-hidden="true" />
+    </a>
+  ) : (
+    <Link href={href} className="mkt-link mkt-card-link" data-cursor="hover">
+      {cta} <ArrowRight aria-hidden="true" />
+    </Link>
+  )
+  if (p.placeholder) {
+    return (
+      <article className={`mkt-card mkt-card-open ${dim ? "is-dim" : ""}`} data-field={p.field}>
+        <div className="mkt-card-top">
+          <span className="mkt-mono mkt-tag">{p.field}</span>
+          <span className="mkt-mono mkt-card-open-badge">{labels.open}</span>
+        </div>
+        <h3 className="mkt-card-title">{labels.openTitle}</h3>
+        <p className="mkt-card-open-line">{labels.openLine.replace("{field}", p.field)}</p>
+        {link}
+      </article>
+    )
+  }
   return (
     <article className={`mkt-card ${dim ? "is-dim" : ""}`} data-field={p.field}>
       <div className="mkt-card-top">
         <span className="mkt-mono mkt-tag">{p.field}</span>
-        {p.placeholder ? <span className="mkt-mono mkt-dim">{labels.sample}</span> : null}
       </div>
       <h3 className="mkt-card-title">{p.title}</h3>
       <p className="mkt-mono mkt-dim mkt-card-inst">{p.institution}</p>
@@ -26,15 +55,7 @@ export function ResearchCard({ p, labels, dim = false, plain = false }: { p: Pro
       <div className="mkt-card-bar" aria-hidden="true">
         <div style={{ transform: `scaleX(${p.funded ?? 0})` }} />
       </div>
-      {plain ? (
-        <a href="/project" className="mkt-link mkt-card-link" data-cursor="hover">
-          {labels.view} <ArrowRight aria-hidden="true" />
-        </a>
-      ) : (
-        <Link href="/project" className="mkt-link mkt-card-link" data-cursor="hover">
-          {labels.view} <ArrowRight aria-hidden="true" />
-        </Link>
-      )}
+      {link}
     </article>
   )
 }
@@ -52,9 +73,14 @@ export function Gallery() {
     const max = Math.max(0, el.scrollWidth - el.clientWidth)
     el.style.transform = `translate3d(${-p * max}px, 0, 0)`
   })
-  const labels = { trl: t.gallery.trl, funded: t.gallery.funded, view: t.gallery.view, sample: t.gallery.sample }
+  const g = t.gallery
+  const labels: CardLabels = { trl: g.trl, funded: g.funded, view: g.view, open: g.open, openTitle: g.openTitle, openLine: g.openLine, openCta: g.openCta }
   useEffect(() => {
-    scrollStore.setState({ galleryLabels: { trl: t.gallery.trl, funded: t.gallery.funded, view: t.gallery.view, sample: t.gallery.sample }, galleryProjects: t.gallery.projects })
+    const g = t.gallery
+    scrollStore.setState({
+      galleryLabels: { trl: g.trl, funded: g.funded, view: g.view, open: g.open, openTitle: g.openTitle, openLine: g.openLine, openCta: g.openCta },
+      galleryProjects: g.projects,
+    })
   }, [t])
   const fieldOf = (i: number) => (i === 0 ? null : t.gallery.filters[i])
   const pick = (i: number) => {

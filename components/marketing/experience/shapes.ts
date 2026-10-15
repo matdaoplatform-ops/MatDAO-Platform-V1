@@ -597,7 +597,7 @@ function substrate(n: number): ShapeData {
 }
 
 /** Corridor flora: particle blooms dissolving around each card, plus a sparse wall. */
-export const CORRIDOR = { z0: -38, z1: -58, radius: 3.3, cards: 7 }
+export const CORRIDOR = { z0: -38, z1: -58, radius: 3.3, cards: 4 } // cards = gallery.projects length
 export function cardSlot(i: number): { pos: Vec3; side: number; rotY: number } {
   const z = CORRIDOR.z0 - 2.2 - i * ((CORRIDOR.z0 - CORRIDOR.z1 - 3) / (CORRIDOR.cards - 1))
   // Copy and filters live on the left, so the cards hang on the right half of the corridor.

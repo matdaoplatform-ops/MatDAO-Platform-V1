@@ -49,7 +49,7 @@ export interface ScrollState {
   /** Active gallery filter (field name) or null for all. */
   galleryFilter: string | null
   /** Labels for cards rendered inside the canvas (outside React context). */
-  galleryLabels: { trl: string; funded: string; view: string; sample: string } | null
+  galleryLabels: { trl: string; funded: string; view: string; open: string; openTitle: string; openLine: string; openCta: string } | null
   galleryProjects: import("@/content/en").ProjectCard[]
 }
 
