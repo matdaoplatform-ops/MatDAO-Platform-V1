@@ -4,7 +4,6 @@ import dynamic from "next/dynamic"
 import { useEffect, useState } from "react"
 import { LocaleProvider, useI18n } from "./i18n"
 import { SmoothScroll } from "./SmoothScroll"
-import { MarketingNav } from "./MarketingNav"
 import { Preloader } from "./Preloader"
 import { Cursor } from "./ui/cursor"
 import { Hero } from "./sections/Hero"
@@ -60,7 +59,6 @@ function Page() {
       <div className="mkt-bg" aria-hidden="true" />
       <Backdrop />
       <div className="mkt-glow" aria-hidden="true" />
-      <MarketingNav />
       {/* Sections remount on language change so line splits are rebuilt. */}
       <main id="main" key={locale} className="mkt-main">
         <Hero />

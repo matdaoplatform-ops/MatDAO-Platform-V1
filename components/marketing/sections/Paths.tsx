@@ -8,13 +8,13 @@ import { AccentText } from "../ui/text"
 import { PillButton } from "../ui/controls"
 import { JoinDaoButton } from "../ui/join-dao"
 
-/** S6 — Two paths: researchers (catalyst) and backers (data). */
+/** S6 — Two paths: researchers (catalyst) and investors (data). */
 export function Paths() {
   const { t } = useI18n()
   const root = useRef<HTMLElement>(null)
   useCues("paths", root)
   const r = t.paths.researchers
-  const b = t.paths.backers
+  const b = t.paths.investors
   return (
     <section ref={root} id="join" data-section="paths" className="mkt-sec mkt-paths" aria-labelledby="paths-title">
       <h2 id="paths-title" className="mkt-label" data-cue="scramble" data-in="0.15">{t.paths.label}</h2>

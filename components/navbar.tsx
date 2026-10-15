@@ -13,6 +13,7 @@ import {
   ClipboardList,
   ShieldCheck,
   Beaker,
+  Wallet,
 } from "lucide-react"
 import { useAuth } from "@/context/auth-context"
 import type { UserRole } from "@/lib/auth-routes"
@@ -36,6 +37,9 @@ const navLinks: NavLink[] = [
   { label: "MAT Token", href: "/mattoken" },
   { label: "Guide", href: "/guide" },
 ]
+
+/** Shown directly in the desktop pill; every other link sits under "More". The logo is the Home link. */
+const PRIMARY = new Set(["/why-us", "/project", "/ai-studio", "/mattoken", "/guide"])
 
 /** Role-specific shortcuts shown in the account menu and the mobile drawer. */
 function roleLinks(role: UserRole): { label: string; href: string; icon: typeof LayoutDashboard }[] {
@@ -93,6 +97,66 @@ function useStaffNotificationCount(enabled: boolean) {
   return count
 }
 
+/**
+ * Wallet control in the navbar's own style (RainbowKit's documented custom
+ * button): connect, wrong-network and connected states, same modals as before.
+ */
+function NavWallet() {
+  return (
+    <ConnectButton.Custom>
+      {({ account, chain, mounted, openConnectModal, openAccountModal, openChainModal }) => {
+        if (!mounted) return <div className="app-nav-wallet-btn opacity-0" aria-hidden="true" />
+        if (!account || !chain) {
+          return (
+            <button type="button" onClick={openConnectModal} className="app-nav-wallet-btn">
+              <Wallet aria-hidden="true" />
+              <span>Connect wallet</span>
+            </button>
+          )
+        }
+        if (chain.unsupported) {
+          return (
+            <button type="button" onClick={openChainModal} className="app-nav-wallet-btn is-warning">
+              Wrong network
+            </button>
+          )
+        }
+        return (
+          <button type="button" onClick={openAccountModal} className="app-nav-wallet-btn is-connected">
+            <span className="app-nav-wallet-dot" aria-hidden="true" />
+            <span>{account.displayName}</span>
+          </button>
+        )
+      }}
+    </ConnectButton.Custom>
+  )
+}
+
+/** Hides the bar while scrolling down and brings it back on any scroll up. */
+function useHideOnScroll() {
+  const [hidden, setHidden] = useState(false)
+  useEffect(() => {
+    let last = window.scrollY
+    let frame = 0
+    const onScroll = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        const y = window.scrollY
+        if (y > last + 4 && y > 160) setHidden(true)
+        else if (y < last - 4 || y < 80) setHidden(false)
+        if (Math.abs(y - last) > 4) last = y
+      })
+    }
+    window.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      window.removeEventListener("scroll", onScroll)
+      cancelAnimationFrame(frame)
+    }
+  }, [])
+  return hidden
+}
+
 export function Navbar() {
   const pathname = usePathname()
   const { user, signOut, isLoading } = useAuth()
@@ -100,6 +164,9 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const staffUnread = useStaffNotificationCount(user?.role === "staff")
+  const scrolledAway = useHideOnScroll()
+  const hidden = scrolledAway && !dropdownOpen && !mobileOpen
+  const onLanding = pathname === "/"
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -118,59 +185,69 @@ export function Navbar() {
   }, [pathname])
 
   const visibleLinks = navLinks.filter((link) => !link.roles || (user && link.roles.includes(user.role)))
+  const primaryLinks = visibleLinks.filter((l) => PRIMARY.has(l.href))
+  const moreLinks = visibleLinks.filter((l) => !PRIMARY.has(l.href) && l.href !== "/")
   const isActive = (href: string) => pathname === href || (href !== "/" && pathname.startsWith(href))
+  const moreActive = moreLinks.some((l) => isActive(l.href))
   const shortcuts = user ? roleLinks(user.role) : []
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur-xl">
-      <div className="mx-auto flex h-[60px] max-w-7xl items-center justify-between px-5">
-        <Link href="/" className="flex items-center gap-2.5 group">
-          <div className="relative">
-            <img
-              src="https://hebbkx1anhila5yf.public.blob.vercel-storage.com/Add%20a%20subheading%284%29-8oEDuOtVsHXvDTX1gdv6hBkwYJak4N.png"
-              alt="MatDAO Logo"
-              className="h-8 transition-transform group-hover:scale-105"
-            />
-            <div className="absolute inset-0 bg-gradient-to-r from-[#6efcff]/20 to-transparent rounded-lg blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
-          </div>
+    <header
+      className={`app-nav ${onLanding ? "app-nav--overlay" : ""} ${hidden ? "is-hidden" : ""}`}
+      data-landing={onLanding ? "" : undefined}
+    >
+      <div className="app-nav-inner">
+        <Link href="/" className="app-nav-logo" aria-label="MatDAO home">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/marketing/matdao-logo.png" alt="MatDAO" width={140} height={37} />
         </Link>
 
-        <nav className="hidden items-center gap-1 rounded-2xl border border-border/60 bg-secondary/40 px-2 py-1.5 lg:flex backdrop-blur-sm">
-          {visibleLinks.map((link) => {
-            const active = isActive(link.href)
-            return (
-              <Link
-                key={link.href}
-                href={link.href}
-                className={`relative rounded-xl px-3.5 py-2 text-sm font-medium transition-all duration-200 ${
-                  active
-                    ? "bg-gradient-to-r from-[#6efcff]/20 to-[#6efcff]/5 text-[#c5fdff] shadow-lg shadow-[#6efcff]/10"
-                    : "text-muted-foreground hover:text-foreground hover:bg-white/5"
-                }`}
-              >
-                {link.label}
-                {active && (
-                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-transparent via-[#6efcff] to-transparent rounded-full" />
-                )}
-              </Link>
-            )
-          })}
+        <nav className="app-nav-pill" aria-label="Main">
+          {primaryLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              aria-current={isActive(link.href) ? "page" : undefined}
+              className={`app-nav-link ${isActive(link.href) ? "is-active" : ""}`}
+            >
+              {link.label}
+            </Link>
+          ))}
+          {moreLinks.length > 0 && (
+            <div className="app-nav-dd">
+              <button type="button" className={`app-nav-link ${moreActive ? "is-active" : ""}`} aria-haspopup="true">
+                More <ChevronDown aria-hidden="true" />
+              </button>
+              <div className="app-nav-menu">
+                {moreLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    aria-current={isActive(link.href) ? "page" : undefined}
+                    className={isActive(link.href) ? "is-active" : ""}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </nav>
 
-        <div className="flex items-center gap-2.5">
-          <div className="hidden sm:block">
-            <ConnectButton accountStatus="avatar" chainStatus="icon" showBalance={false} />
+        <div className="app-nav-right">
+          <div className="app-nav-wallet">
+            <NavWallet />
           </div>
 
           {user?.role === "staff" && (
             <Link
               href="/tto-portal"
               aria-label={`Review queue, ${staffUnread} unread notifications`}
-              className="relative hidden rounded-xl border border-border/60 bg-secondary/40 p-2 text-muted-foreground transition-colors hover:text-foreground sm:flex"
+              className="app-nav-icon relative hidden sm:flex"
             >
               <Bell className="h-4 w-4" />
               {staffUnread > 0 && (
-                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#6efcff] px-1 text-[10px] font-bold text-black">
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#38e1ff] px-1 text-[10px] font-bold text-black">
                   {staffUnread > 99 ? "99+" : staffUnread}
                 </span>
               )}
@@ -178,107 +255,89 @@ export function Navbar() {
           )}
 
           {isLoading ? (
-            <div className="h-8 w-24 animate-pulse rounded-xl bg-secondary/40" aria-hidden="true" />
+            <div className="hidden h-9 w-28 animate-pulse rounded-full bg-white/5 md:block" aria-hidden="true" />
           ) : user ? (
             <div className="relative hidden md:block" ref={dropdownRef}>
               <button
                 onClick={() => setDropdownOpen(!dropdownOpen)}
                 aria-haspopup="menu"
                 aria-expanded={dropdownOpen}
-                className="flex items-center gap-2 rounded-xl border border-border/60 bg-secondary/40 px-3 py-1.5 text-sm text-foreground transition-all duration-200 hover:bg-secondary/60 hover:border-border/80 backdrop-blur-sm"
+                className="app-nav-account"
               >
-                <div className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-[#6efcff]/30 to-[#6efcff]/10 text-xs font-bold text-[#c5fdff] shadow-inner">
-                  {user.name.charAt(0).toUpperCase()}
-                </div>
-                <span className="font-medium text-xs">{user.name}</span>
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
+                <span className="app-nav-avatar">{user.name.charAt(0).toUpperCase()}</span>
+                <span className="max-w-[9rem] truncate">{user.name}</span>
+                <ChevronDown className={`h-3.5 w-3.5 opacity-60 transition-transform duration-200 ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
               {dropdownOpen && (
-                <div role="menu" className="absolute right-0 top-full mt-2 w-52 rounded-xl border border-border/60 bg-card/95 backdrop-blur-xl p-1.5 shadow-2xl shadow-black/20">
+                <div role="menu" className="app-nav-panel absolute right-0 top-full mt-2 w-56">
                   <div className="px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Signed in as</p>
+                    <p className="app-mono text-[10px] text-muted-foreground">Signed in as</p>
                     <p className="truncate text-xs font-medium text-foreground">{user.email}</p>
-                    <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[10px] capitalize text-primary">
+                    <span className="mt-1 inline-block rounded-full bg-[#38e1ff]/10 px-2 py-0.5 text-[10px] capitalize text-[#8ff0ff]">
                       {user.role}
                     </span>
                   </div>
-                  <div className="my-1 h-px bg-border/40" />
+                  <div className="my-1 h-px bg-white/10" />
                   {shortcuts.map((item) => (
                     <Link
                       key={item.href}
                       href={item.href}
                       role="menuitem"
                       onClick={() => setDropdownOpen(false)}
-                      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-secondary/80 hover:text-foreground transition-colors"
+                      className="app-nav-panel-item"
                     >
                       <item.icon className="h-3.5 w-3.5" />
-                      <span className="font-medium">{item.label}</span>
+                      <span>{item.label}</span>
                       {item.href === "/tto-portal" && staffUnread > 0 && (
-                        <span className="ml-auto rounded-full bg-[#6efcff]/20 px-1.5 text-[10px] font-semibold text-[#c5fdff]">
+                        <span className="ml-auto rounded-full bg-[#38e1ff]/20 px-1.5 text-[10px] font-semibold text-[#8ff0ff]">
                           {staffUnread}
                         </span>
                       )}
                     </Link>
                   ))}
-                  <Link
-                    href="/profile"
-                    role="menuitem"
-                    onClick={() => setDropdownOpen(false)}
-                    className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-muted-foreground hover:bg-secondary/80 hover:text-foreground transition-colors"
-                  >
+                  <Link href="/profile" role="menuitem" onClick={() => setDropdownOpen(false)} className="app-nav-panel-item">
                     <User className="h-3.5 w-3.5" />
-                    <span className="font-medium">Profile</span>
+                    <span>Profile</span>
                   </Link>
-                  <div className="my-1 h-px bg-border/40" />
+                  <div className="my-1 h-px bg-white/10" />
                   <button
                     role="menuitem"
                     onClick={() => {
                       signOut()
                       setDropdownOpen(false)
                     }}
-                    className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-xs text-destructive hover:bg-destructive/10 transition-colors"
+                    className="app-nav-panel-item w-full text-destructive hover:bg-destructive/10"
                   >
                     <LogOut className="h-3.5 w-3.5" />
-                    <span className="font-medium">Sign Out</span>
+                    <span>Sign Out</span>
                   </button>
                 </div>
               )}
             </div>
           ) : (
-            <div className="hidden items-center gap-2 md:flex">
-              <Link
-                href="/auth/sign-in"
-                className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-secondary/60 hover:text-foreground transition-all duration-200"
-              >
+            <div className="hidden items-center gap-4 md:flex">
+              <Link href="/auth/sign-in" className="app-nav-signin">
                 Sign In
               </Link>
-              <Link
-                href="/auth/sign-up"
-                className="rounded-xl bg-gradient-to-r from-[#6efcff] to-[#6efcff]/80 px-3 py-1.5 text-xs font-semibold text-black hover:from-[#6efcff]/90 hover:to-[#6efcff]/70 transition-all duration-200 shadow-lg shadow-[#6efcff]/20"
-              >
+              <Link href="/auth/sign-up" className="app-nav-cta">
                 Launch App
               </Link>
             </div>
           )}
 
-          {/* Mobile menu */}
+          {/* Mobile and tablet menu */}
           <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
             <SheetTrigger asChild>
-              <button
-                aria-label="Open menu"
-                className="flex items-center justify-center rounded-xl border border-border/60 bg-secondary/40 p-2 text-foreground lg:hidden"
-              >
+              <button aria-label="Open menu" className="app-nav-burger">
                 <Menu className="h-5 w-5" />
               </button>
             </SheetTrigger>
-            <SheetContent side="right" className="w-[85vw] max-w-sm overflow-y-auto border-border/60 bg-background p-0">
+            <SheetContent side="right" className="app-nav-sheet w-[85vw] max-w-sm overflow-y-auto p-0">
               <SheetTitle className="sr-only">Navigation</SheetTitle>
               <div className="flex flex-col gap-1 p-5 pt-14">
                 {user ? (
-                  <div className="mb-3 flex items-center gap-3 rounded-xl border border-border/60 bg-secondary/40 p-3">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[#6efcff]/30 to-[#6efcff]/10 text-sm font-bold text-[#c5fdff]">
-                      {user.name.charAt(0).toUpperCase()}
-                    </div>
+                  <div className="mb-3 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3">
+                    <span className="app-nav-avatar h-9 w-9 text-sm">{user.name.charAt(0).toUpperCase()}</span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-foreground">{user.name}</p>
                       <p className="truncate text-xs capitalize text-muted-foreground">{user.role}</p>
@@ -286,16 +345,10 @@ export function Navbar() {
                   </div>
                 ) : (
                   <div className="mb-3 grid grid-cols-2 gap-2">
-                    <Link
-                      href="/auth/sign-in"
-                      className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2.5 text-center text-sm font-medium text-foreground"
-                    >
+                    <Link href="/auth/sign-in" className="app-nav-sheet-btn">
                       Sign In
                     </Link>
-                    <Link
-                      href="/auth/sign-up"
-                      className="rounded-xl bg-gradient-to-r from-[#6efcff] to-[#6efcff]/80 px-3 py-2.5 text-center text-sm font-semibold text-black"
-                    >
+                    <Link href="/auth/sign-up" className="app-nav-sheet-btn app-nav-sheet-btn--primary">
                       Launch App
                     </Link>
                   </div>
@@ -303,51 +356,44 @@ export function Navbar() {
 
                 {shortcuts.length > 0 && (
                   <>
-                    <p className="px-2 pt-2 text-[10px] uppercase tracking-wider text-muted-foreground">My workspace</p>
+                    <p className="app-mono px-2 pt-2 text-[10px] text-muted-foreground">My workspace</p>
                     {shortcuts.map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
-                        className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                          isActive(item.href) ? "bg-[#6efcff]/10 text-[#c5fdff]" : "text-foreground hover:bg-white/5"
-                        }`}
+                        className={`app-nav-sheet-link ${isActive(item.href) ? "is-active" : ""}`}
                       >
                         <item.icon className="h-4 w-4" />
                         {item.label}
                         {item.href === "/tto-portal" && staffUnread > 0 && (
-                          <span className="ml-auto rounded-full bg-[#6efcff]/20 px-2 text-[10px] font-semibold text-[#c5fdff]">
+                          <span className="ml-auto rounded-full bg-[#38e1ff]/20 px-2 text-[10px] font-semibold text-[#8ff0ff]">
                             {staffUnread}
                           </span>
                         )}
                       </Link>
                     ))}
-                    <div className="my-2 h-px bg-border/40" />
+                    <div className="my-2 h-px bg-white/10" />
                   </>
                 )}
 
-                <p className="px-2 pt-1 text-[10px] uppercase tracking-wider text-muted-foreground">Explore</p>
+                <p className="app-mono px-2 pt-1 text-[10px] text-muted-foreground">Explore</p>
                 {visibleLinks.map((link) => (
                   <Link
                     key={link.href}
                     href={link.href}
-                    className={`rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                      isActive(link.href) ? "bg-[#6efcff]/10 text-[#c5fdff]" : "text-foreground hover:bg-white/5"
-                    }`}
+                    className={`app-nav-sheet-link ${isActive(link.href) ? "is-active" : ""}`}
                   >
                     {link.label}
                   </Link>
                 ))}
 
-                <div className="my-2 h-px bg-border/40" />
+                <div className="my-2 h-px bg-white/10" />
                 <div className="px-1 py-1 sm:hidden">
-                  <ConnectButton accountStatus="address" chainStatus="icon" showBalance={false} />
+                  <NavWallet />
                 </div>
                 {user && (
                   <>
-                    <Link
-                      href="/profile"
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-foreground hover:bg-white/5"
-                    >
+                    <Link href="/profile" className="app-nav-sheet-link">
                       <User className="h-4 w-4" />
                       Profile
                     </Link>
@@ -356,7 +402,7 @@ export function Navbar() {
                         signOut()
                         setMobileOpen(false)
                       }}
-                      className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm font-medium text-destructive hover:bg-destructive/10"
+                      className="app-nav-sheet-link text-left text-destructive hover:bg-destructive/10"
                     >
                       <LogOut className="h-4 w-4" />
                       Sign Out

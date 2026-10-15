@@ -1,12 +1,6 @@
 import type { Metadata } from "next"
-import { Space_Grotesk, Instrument_Serif, JetBrains_Mono, IBM_Plex_Sans_Thai } from "next/font/google"
 import { en } from "@/content/en"
 import "./marketing.css"
-
-const display = Space_Grotesk({ subsets: ["latin"], weight: ["300", "400", "500"], variable: "--mkt-font-display", display: "swap" })
-const serif = Instrument_Serif({ subsets: ["latin"], weight: "400", style: ["italic"], variable: "--mkt-font-serif", display: "swap" })
-const mono = JetBrains_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--mkt-font-mono", display: "swap" })
-const thai = IBM_Plex_Sans_Thai({ subsets: ["thai"], weight: ["300", "400"], variable: "--mkt-font-thai", display: "swap", preload: false })
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "https://mat-dao-platform-v1-mu.vercel.app"),
@@ -23,12 +17,13 @@ export const metadata: Metadata = {
 }
 
 /**
- * Marketing layout: its own fonts and design tokens. The app chrome (navbar,
- * particle background, demo toggle) from the root layout hides itself on "/".
+ * Marketing layout: design tokens for the landing (fonts come from the root
+ * layout). The root layout's 2D particle background and demo toggle hide on "/";
+ * the shared navbar switches to its overlay style there.
  */
 export default function MarketingLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`mkt ${display.variable} ${serif.variable} ${mono.variable} ${thai.variable}`}>
+    <div className="mkt">
       {/* Marks JS as available before first paint: only then are cues hidden and the preloader shown. */}
       <script dangerouslySetInnerHTML={{ __html: "document.documentElement.setAttribute('data-mkt-js','')" }} />
       {children}

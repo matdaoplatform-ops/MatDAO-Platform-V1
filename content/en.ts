@@ -23,28 +23,7 @@ export const en = {
   meta: {
     title: "MatDAO — Funding the materials that build the future",
     description:
-      "MatDAO is a research-funding DAO for materials science. Researchers submit their work, KALDERA AI values it, and backers fund tokenized IP.",
-  },
-  nav: {
-    research: "Research",
-    researchItems: [
-      { label: "Explore research", href: "/project" },
-      { label: "Submit your research", href: "/submit" },
-      { label: "KALDERA AI valuation", href: "/ai-studio" },
-    ],
-    how: "How it works",
-    terra: "Terra",
-    dao: "DAO",
-    daoItems: [
-      { label: "MAT token", href: "/mattoken" },
-      { label: "Milestone escrow", href: "/milestone-escrow" },
-      { label: "Ecosystem", href: "/our-ecosystem" },
-    ],
-    docs: "Docs",
-    login: "Login",
-    launch: "Launch App",
-    menu: "Menu",
-    close: "Close",
+      "MatDAO is a research-funding DAO for materials science. Researchers submit their work, KALDERA AI values it, and investors fund tokenized IP.",
   },
   preloader: {
     label: "MATDAO — INITIALISING LATTICE",
@@ -53,7 +32,7 @@ export const en = {
     submit: "Submit your research",
     explore: "Explore research",
     join: "Join the DAO",
-    connected: "Wallet connected",
+    connected: "Open investor dashboard",
   },
   hero: {
     headline: { pre: "Funding the materials that build the ", accent: "future", post: "." } as Accent,
@@ -61,7 +40,7 @@ export const en = {
     // Real figures only. Leave "" until the team confirms a number.
     stats: [
       { value: "", label: "Research projects" },
-      { value: "", label: "Backers" },
+      { value: "", label: "Investors" },
       { value: "", label: "THB funded" },
     ],
     locale: "BANGKOK, TH",
@@ -73,7 +52,7 @@ export const en = {
     columns: [
       { tag: "FUNDING", title: "Caught between two worlds", body: "Early-stage deeptech is too early for VCs and too applied for grants." },
       { tag: "IP", title: "Value left on paper", body: "Valuable IP sits in papers, unpriced and unlicensed." },
-      { tag: "ACCESS", title: "No way in", body: "Backers who want to fund science have no direct way in." },
+      { tag: "ACCESS", title: "No way in", body: "Investors who want to fund science have no direct way in." },
     ],
   },
   protocol: {
@@ -96,7 +75,7 @@ export const en = {
         n: "03",
         tag: "TOKENIZATION",
         title: "Fund and share",
-        body: "IP becomes an on-chain asset. Backers fund it. Researchers and backers share the upside.",
+        body: "IP becomes an on-chain asset. Investors fund it. Researchers and investors share the upside.",
       },
     ],
     readout: {
@@ -149,10 +128,10 @@ export const en = {
     researchers: {
       kicker: "FOR RESEARCHERS",
       title: { pre: "Get your research ", accent: "funded", post: " and valued." } as Accent,
-      bullets: ["Free AI valuation", "Tokenized IP", "Access to backers"],
+      bullets: ["Free AI valuation", "Tokenized IP", "Access to investors"],
     },
-    backers: {
-      kicker: "FOR BACKERS",
+    investors: {
+      kicker: "FOR INVESTORS",
       title: { pre: "Fund the science you ", accent: "believe", post: " in." } as Accent,
       bullets: ["Curated deeptech", "On-chain transparency", "Shared upside"],
     },

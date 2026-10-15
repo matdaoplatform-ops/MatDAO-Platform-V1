@@ -37,37 +37,36 @@ export function Web3Background() {
           y: Math.random() * canvas.height,
           vx: (Math.random() - 0.5) * 0.5,
           vy: (Math.random() - 0.5) * 0.5,
-          radius: Math.random() * 2 + 1,
+          radius: Math.random() * 1.4 + 0.6,
           opacity: Math.random() * 0.5 + 0.2,
         })
       }
     }
 
     const drawGradientBackground = () => {
-      // Create a deep blue/purple gradient background
-      const gradient = ctx.createRadialGradient(
-        canvas.width / 2,
-        canvas.height / 2,
-        0,
-        canvas.width / 2,
-        canvas.height / 2,
-        canvas.width
-      )
-      
-      gradient.addColorStop(0, '#0a0a1a')
-      gradient.addColorStop(0.3, '#0d1a2d')
-      gradient.addColorStop(0.6, '#0a1525')
-      gradient.addColorStop(1, '#050510')
-      
-      ctx.fillStyle = gradient
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      // Deep navy ground with the landing's two corner glows: data-cyan bottom-left, catalyst top-right.
+      const w = canvas.width
+      const h = canvas.height
+      ctx.fillStyle = "#05070d"
+      ctx.fillRect(0, 0, w, h)
+      const r = Math.max(w, h)
+      const cool = ctx.createRadialGradient(0, h, 0, 0, h, r * 0.6)
+      cool.addColorStop(0, "rgba(56, 225, 255, 0.13)")
+      cool.addColorStop(1, "rgba(56, 225, 255, 0)")
+      ctx.fillStyle = cool
+      ctx.fillRect(0, 0, w, h)
+      const warm = ctx.createRadialGradient(w, 0, 0, w, 0, r * 0.5)
+      warm.addColorStop(0, "rgba(255, 106, 43, 0.08)")
+      warm.addColorStop(1, "rgba(255, 106, 43, 0)")
+      ctx.fillStyle = warm
+      ctx.fillRect(0, 0, w, h)
     }
 
     const drawParticles = () => {
       particles.forEach((particle) => {
         ctx.beginPath()
         ctx.arc(particle.x, particle.y, particle.radius, 0, Math.PI * 2)
-        ctx.fillStyle = `rgba(110, 252, 255, ${particle.opacity})`
+        ctx.fillStyle = `rgba(56, 225, 255, ${particle.opacity * 0.8})`
         ctx.fill()
       })
     }
@@ -82,11 +81,11 @@ export function Web3Background() {
           const distance = Math.sqrt(dx * dx + dy * dy)
           
           if (distance < maxDistance) {
-            const opacity = (1 - distance / maxDistance) * 0.15
+            const opacity = (1 - distance / maxDistance) * 0.12
             ctx.beginPath()
             ctx.moveTo(particles[i].x, particles[i].y)
             ctx.lineTo(particles[j].x, particles[j].y)
-            ctx.strokeStyle = `rgba(110, 252, 255, ${opacity})`
+            ctx.strokeStyle = `rgba(91, 124, 255, ${opacity})`
             ctx.lineWidth = 0.5
             ctx.stroke()
           }
@@ -113,21 +112,32 @@ export function Web3Background() {
       })
     }
 
-    const animate = () => {
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+
+    const draw = () => {
       drawGradientBackground()
       drawConnections()
       drawParticles()
-      updateParticles()
+    }
+
+    const animate = () => {
+      if (document.visibilityState === "visible") {
+        draw()
+        updateParticles()
+      }
       animationFrameId = requestAnimationFrame(animate)
     }
 
     resize()
     createParticles()
-    animate()
+    // Reduced motion: one still frame instead of drifting particles.
+    if (reduced) draw()
+    else animate()
 
     const handleResize = () => {
       resize()
       createParticles()
+      if (reduced) draw()
     }
 
     window.addEventListener('resize', handleResize)
@@ -142,7 +152,7 @@ export function Web3Background() {
     <canvas
       ref={canvasRef}
       className="fixed inset-0 -z-10"
-      style={{ background: '#0a0a1a' }}
+      style={{ background: '#05070d' }}
     />
   )
 }

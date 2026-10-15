@@ -128,7 +128,7 @@ export default function ProjectAssessmentResultsPage() {
   const ddLlm = report.dueDiligenceReport?.llmReport
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-br from-black via-gray-950 to-black px-5 py-12 sm:px-6">
+    <div className="app-remap relative min-h-screen bg-gradient-to-br from-black via-gray-950 to-black px-5 py-12 sm:px-6">
       <div className="relative z-10 mx-auto max-w-6xl">
         {/* Analysis mode: did an LLM actually read this, or did rule-based fallbacks run? */}
         <AnalysisModeBanner

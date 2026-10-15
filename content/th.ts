@@ -6,28 +6,7 @@ export const th: Dict = {
   meta: {
     title: "MatDAO — ทุนวิจัยสำหรับวัสดุที่สร้างอนาคต",
     description:
-      "MatDAO คือ DAO ระดมทุนวิจัยด้านวัสดุศาสตร์ นักวิจัยส่งผลงาน KALDERA AI ประเมินมูลค่า และผู้สนับสนุนร่วมลงทุนใน IP ที่ถูกโทเคไนซ์",
-  },
-  nav: {
-    research: "งานวิจัย",
-    researchItems: [
-      { label: "สำรวจงานวิจัย", href: "/project" },
-      { label: "ส่งงานวิจัยของคุณ", href: "/submit" },
-      { label: "ประเมินมูลค่าด้วย KALDERA AI", href: "/ai-studio" },
-    ],
-    how: "วิธีการทำงาน",
-    terra: "Terra",
-    dao: "DAO",
-    daoItems: [
-      { label: "MAT token", href: "/mattoken" },
-      { label: "Milestone escrow", href: "/milestone-escrow" },
-      { label: "Ecosystem", href: "/our-ecosystem" },
-    ],
-    docs: "เอกสาร",
-    login: "เข้าสู่ระบบ",
-    launch: "เปิดแอป",
-    menu: "เมนู",
-    close: "ปิด",
+      "MatDAO คือ DAO ระดมทุนวิจัยด้านวัสดุศาสตร์ นักวิจัยส่งผลงาน KALDERA AI ประเมินมูลค่า และนักลงทุนลงทุนใน IP ที่ถูกโทเคไนซ์",
   },
   preloader: {
     label: "MATDAO — INITIALISING LATTICE",
@@ -36,14 +15,14 @@ export const th: Dict = {
     submit: "ส่งงานวิจัยของคุณ",
     explore: "สำรวจงานวิจัย",
     join: "เข้าร่วม DAO",
-    connected: "เชื่อมต่อวอลเล็ตแล้ว",
+    connected: "ไปที่แดชบอร์ดนักลงทุน",
   },
   hero: {
     headline: { pre: "ทุนวิจัยสำหรับวัสดุที่สร้าง", accent: "อนาคต", post: "" } as Accent,
     lede: "MatDAO คือ DAO ระดมทุนวิจัยด้านวัสดุศาสตร์ เราเปลี่ยนผลงานจากห้องแล็บให้เป็น IP ที่ระดมทุนได้และถูกโทเคไนซ์ แล้วพาออกสู่ตลาด",
     stats: [
       { value: "", label: "โครงการวิจัย" },
-      { value: "", label: "ผู้สนับสนุน" },
+      { value: "", label: "นักลงทุน" },
       { value: "", label: "บาทที่ระดมได้" },
     ],
     locale: "BANGKOK, TH",
@@ -69,7 +48,7 @@ export const th: Dict = {
         title: "อ่าน ตรวจ ประเมิน",
         body: "KALDERA อ่านงานวิจัย ตรวจความใหม่เทียบกับสิทธิบัตรและบทความ ให้คะแนนความพร้อม และประเมินมูลค่า",
       },
-      { n: "03", tag: "TOKENIZATION", title: "ระดมทุนและแบ่งผล", body: "IP กลายเป็นสินทรัพย์บนบล็อกเชน ผู้สนับสนุนร่วมลงทุน นักวิจัยและผู้สนับสนุนแบ่งผลตอบแทนร่วมกัน" },
+      { n: "03", tag: "TOKENIZATION", title: "ระดมทุนและแบ่งผล", body: "IP กลายเป็นสินทรัพย์บนบล็อกเชน นักลงทุนให้ทุน นักวิจัยและนักลงทุนแบ่งผลตอบแทนร่วมกัน" },
     ],
     readout: {
       label: "AI VALUATION LAYER",
@@ -121,10 +100,10 @@ export const th: Dict = {
     researchers: {
       kicker: "สำหรับนักวิจัย",
       title: { pre: "ให้งานวิจัยของคุณได้", accent: "ทุน", post: "และได้รับการประเมินมูลค่า" } as Accent,
-      bullets: ["ประเมินมูลค่าด้วย AI ฟรี", "IP ที่ถูกโทเคไนซ์", "เข้าถึงผู้สนับสนุน"],
+      bullets: ["ประเมินมูลค่าด้วย AI ฟรี", "IP ที่ถูกโทเคไนซ์", "เข้าถึงนักลงทุน"],
     },
-    backers: {
-      kicker: "สำหรับผู้สนับสนุน",
+    investors: {
+      kicker: "สำหรับนักลงทุน",
       title: { pre: "สนับสนุนวิทยาศาสตร์ที่คุณ", accent: "เชื่อ", post: "" } as Accent,
       bullets: ["Deeptech ที่คัดสรรแล้ว", "โปร่งใสบนบล็อกเชน", "แบ่งผลตอบแทนร่วมกัน"],
     },
