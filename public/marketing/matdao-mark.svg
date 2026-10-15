@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 245" fill="none">
+  <!-- MatDAO mark: a molecule graph (traced from the brand logo). -->
+  <g stroke="currentColor" stroke-width="9" stroke-linecap="round">
+    <path d="M62 38 L196 22 M62 38 L131 101 M62 38 L20 148 M196 22 L131 101 M196 22 L230 126 M131 101 L230 126 M131 101 L112 222 M20 148 L112 222 M230 126 L200 218 M112 222 L200 218"/>
+  </g>
+  <g fill="currentColor">
+    <circle cx="62" cy="38" r="16"/><circle cx="196" cy="22" r="20"/><circle cx="131" cy="101" r="7"/>
+    <circle cx="230" cy="126" r="17"/><circle cx="20" cy="148" r="14"/><circle cx="112" cy="222" r="20"/><circle cx="200" cy="218" r="14"/>
+  </g>
+</svg>
