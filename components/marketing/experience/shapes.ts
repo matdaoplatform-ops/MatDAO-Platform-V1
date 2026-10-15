@@ -53,6 +53,8 @@ export interface ShapeMeta {
   center: Vec3
   /** Idle spin about the shape's own Y axis (rad/s). */
   spin: number
+  /** If set, the shape sways ±osc radians instead of spinning (the token must never read as a spinning coin). */
+  osc?: number
   /** Point size multiplier. */
   size: number
   /** 1 = draw as ASCII/data glyphs (KALDERA sphere). */
@@ -71,11 +73,11 @@ export const META: Record<ShapeId, Omit<ShapeMeta, "center">> = {
   shards: { spin: 0.03, size: 1.1, glyph: 0, ember: 0, sway: 0, gain: 1.1 },
   molecule: { spin: 0.16, size: 1, glyph: 0, ember: 0, sway: 0, gain: 1 },
   sphere: { spin: 0.1, size: 1.9, glyph: 1, ember: 0, sway: 0, gain: 1.2 },
-  token: { spin: 0.18, size: 0.95, glyph: 0, ember: 0, sway: 0, gain: 1 },
+  token: { spin: 0.35, osc: 0.42, size: 0.95, glyph: 0, ember: 0, sway: 0, gain: 1 },
   field: { spin: 0, size: 1.25, glyph: 0, ember: 0, sway: 1, gain: 1.45 },
   biochar: { spin: 0.14, size: 1.05, glyph: 0, ember: 0, sway: 0, gain: 1 },
   substrate: { spin: 0.12, size: 1, glyph: 0, ember: 0, sway: 0, gain: 1 },
-  flora: { spin: 0, size: 1.05, glyph: 0, ember: 0, sway: 1, gain: 0.95 },
+  flora: { spin: 0, size: 1.2, glyph: 0, ember: 0, sway: 1, gain: 1.6 },
   paths: { spin: 0.1, size: 1, glyph: 0, ember: 0, sway: 0, gain: 1 },
   ribbon: { spin: 0.05, size: 0.85, glyph: 0, ember: 0, sway: 0, gain: 0.9 },
   emblem: { spin: 0.2, size: 1, glyph: 0, ember: 0, sway: 0, gain: 1 },

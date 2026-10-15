@@ -12,10 +12,10 @@ export function Signal() {
   useCues("signal", root)
   return (
     <section ref={root} id="signal" data-section="signal" className="mkt-sec mkt-signal" aria-labelledby="signal-title">
-      <p id="signal-title" className="mkt-label mkt-signal-label" data-cue="scramble" data-in="0.1">{t.signal.label}</p>
+      <h2 id="signal-title" className="mkt-label mkt-signal-label" data-cue="scramble" data-in="0.1">{t.signal.label}</h2>
       <Marquee items={t.signal.recognition} separator="◆" className="mkt-recognition" speed={48} />
       <div className="mkt-team" data-cue="rise" data-in="0.3">
-        <p className="mkt-mono mkt-dim">{t.signal.teamTitle}</p>
+        <h3 className="mkt-mono mkt-dim">{t.signal.teamTitle}</h3>
         <ul>
           {t.signal.team.map((m, i) => (
             <li key={i} className="mkt-member">

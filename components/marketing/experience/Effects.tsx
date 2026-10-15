@@ -7,6 +7,7 @@ import { BlendFunction, type BloomEffect, type ChromaticAberrationEffect } from 
 import * as THREE from "three"
 import { scrollStore } from "@/store/scroll"
 import { sceneFx } from "./fx"
+import { tuning } from "./tuning"
 
 /**
  * Bloom (mipmap blur), a hair of chromatic aberration that grows during
@@ -24,7 +25,7 @@ export function Effects({ tier }: { tier: "high" | "mid" | "low" }) {
     const t = sceneFx.transition
     const k = 0.00035 + t * 0.0016 + manifesto * 0.0012
     offset.set(k, k * 0.7)
-    if (bloom.current) bloom.current.intensity = 1.05 + t * 0.5
+    if (bloom.current) bloom.current.intensity = tuning.bloom * (0.88 + t * 0.42)
   })
 
   if (tier === "low") {

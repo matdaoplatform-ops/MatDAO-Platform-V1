@@ -7,6 +7,10 @@ import { World } from "./World"
 import { Effects } from "./Effects"
 import { Sets } from "./Sets"
 import { Corridor } from "./Corridor"
+import dynamic from "next/dynamic"
+
+// Leva tuning panel: development only (?tune). The import is dead code in production builds.
+const DevTuning = process.env.NODE_ENV === "development" ? dynamic(() => import("./DevTuning"), { ssr: false }) : () => null
 
 const COUNTS: Record<Tier, number> = { high: 80_000, mid: 60_000, low: 36_000 }
 
@@ -68,7 +72,10 @@ export function Experience() {
   if (!tier) return null
   const corridor = tier !== "low" && window.matchMedia("(min-width: 900px)").matches
   const frameloop = !visible ? "never" : entered && !reduced ? "always" : "demand"
+  const tune = process.env.NODE_ENV === "development" && new URLSearchParams(window.location.search).has("tune")
   return (
+    <>
+    {tune ? <DevTuning /> : null}
     <Canvas
       className="mkt-canvas"
       dpr={tier === "low" ? [1, 1.5] : [1, 1.75]}
@@ -87,5 +94,6 @@ export function Experience() {
       {corridor ? <Corridor /> : null}
       <Effects tier={tier} />
     </Canvas>
+    </>
   )
 }

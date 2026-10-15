@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useRef, useState } from "react"
-import { useFrame } from "@react-three/fiber"
+import { useFrame, useThree } from "@react-three/fiber"
 import { Environment, Lightformer, MeshReflectorMaterial, MeshTransmissionMaterial, Text } from "@react-three/drei"
 import * as THREE from "three"
 import { scrollStore, type ScrollState, type Tier } from "@/store/scroll"
@@ -21,7 +21,7 @@ function activeFrom(s: ScrollState): Active {
   const y = s.scrollY
   const hero = !s.sections.problem || y < (s.sections.problem.start - s.viewport.h * 0.2)
   const proto = p("protocol")
-  const token = proto > 0.6 && (s.sections.terra ? y < s.sections.terra.start - s.viewport.h * 0.3 : true)
+  const token = proto > 0.69 && (s.sections.terra ? y < s.sections.terra.start - s.viewport.h * 0.3 : true)
   const f = p("finale")
   const inFinale = !!s.sections.finale && y > s.sections.finale.start - s.viewport.h * 0.6
   return { hero, token, manifesto: inFinale && f < 0.5, finale: inFinale && f > 0.32 }
@@ -162,11 +162,11 @@ function Halo() {
   return (
     <group position={[x, y - 1.75, z - 0.9]}>
       <mesh>
-        <torusGeometry args={[2.5, 0.01, 8, 200, Math.PI]} />
+        <torusGeometry args={[3.1, 0.01, 8, 200, Math.PI]} />
         <meshBasicMaterial color="#c4b5ff" toneMapped={false} />
       </mesh>
       <mesh>
-        <torusGeometry args={[2.5, 0.07, 8, 200, Math.PI]} />
+        <torusGeometry args={[3.1, 0.07, 8, 200, Math.PI]} />
         <meshBasicMaterial color="#7c5cff" toneMapped={false} transparent opacity={0.18} blending={THREE.AdditiveBlending} depthWrite={false} />
       </mesh>
     </group>
@@ -175,8 +175,12 @@ function Halo() {
 
 /* -------------------------------------------------------- manifesto */
 
+const STILL = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("still")
+
 function Manifesto({ glass }: { glass: boolean }) {
   const ring = useRef<THREE.Group>(null)
+  const { size } = useThree()
+  const fit = Math.min(1, (size.width / size.height) * 0.72)
   const textMat = useMemo(() => new THREE.MeshBasicMaterial({ color: "#7d838f", transparent: true }), [])
   const [x, y, z] = ANCHOR.emblem
   useFrame(({ clock }) => {
@@ -190,10 +194,10 @@ function Manifesto({ glass }: { glass: boolean }) {
   })
   return (
     <group>
-      <Text
+      {STILL ? null : <Text
         font="/marketing/fonts/JetBrainsMono-Medium.woff"
         position={[x, y + 0.05, z - 1.6]}
-        fontSize={1.05}
+        fontSize={1.05 * fit}
         lineHeight={0.95}
         letterSpacing={-0.02}
         textAlign="center"
@@ -202,8 +206,8 @@ function Manifesto({ glass }: { glass: boolean }) {
         material={textMat}
       >
         {"FROM ATOM\nTO ASSET"}
-      </Text>
-      <group ref={ring} position={[x, y, z + 0.9]}>
+      </Text>}
+      <group ref={ring} position={[x, y, z + 0.9]} scale={0.6 + 0.4 * fit}>
         <mesh>
           <torusGeometry args={[1.18, 0.17, 48, 160]} />
           {glass ? (

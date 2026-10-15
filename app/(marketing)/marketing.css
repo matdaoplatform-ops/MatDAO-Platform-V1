@@ -55,8 +55,17 @@ html:lang(th) .mkt {
     radial-gradient(50vmax 34vmax at 100% 0%, rgba(255, 106, 43, 0.10), transparent 70%);
 }
 .mkt-canvas { position: fixed !important; inset: 0; z-index: 1; }
+.mkt-stills { position: fixed; inset: 0; z-index: 1; }
+.mkt-stills img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 66% 50%; opacity: 0; transition: opacity 0.9s ease; }
+.mkt-stills img.is-on { opacity: 1; }
+@media (max-aspect-ratio: 1/1) { .mkt-stills img { object-position: 74% 50%; } }
+/* Without the live corridor or the 3D manifesto, the DOM versions show. */
+[data-mkt-nowebgl] .mkt-manifesto-text { opacity: 1; }
 .mkt-main { position: relative; z-index: 3; }
 
+.mkt-sr { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mkt h2.mkt-label, .mkt h3.mkt-mono { font-weight: 400; }
+.mkt-team h3 { margin: 0; }
 .mkt-skip {
   position: fixed; left: 16px; top: -60px; z-index: 100; padding: 10px 16px; border-radius: 999px;
   background: var(--text); color: var(--bg); font-family: var(--f-mono); font-size: 12px;
@@ -203,7 +212,7 @@ html:lang(th) .mkt {
 .mkt-col-body { font-size: 15px; }
 
 /* ------------------------------------------------------------- protocol */
-.mkt-protocol { display: grid; grid-template-rows: auto auto 1fr auto; gap: 24px; }
+.mkt-protocol { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr auto; gap: 24px; }
 .mkt-protocol-head { max-width: 760px; }
 .mkt-rail ol { list-style: none; padding: 0; margin: 0 0 12px; display: flex; gap: 32px; }
 .mkt-rail li { color: var(--text-dim); transition: color 0.4s; }
@@ -226,7 +235,7 @@ html:lang(th) .mkt {
 .mkt-protocol-marquee { margin: 0 calc(-1 * var(--gutter)); }
 
 /* ------------------------------------------------------------- marquee */
-.mkt-marquee { overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
+.mkt-marquee { min-width: 0; overflow: hidden; mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent); }
 .mkt-marquee-track { display: flex; width: max-content; animation: mkt-marquee var(--speed, 40s) linear infinite; }
 .mkt-marquee-row { display: flex; flex-shrink: 0; }
 .mkt-marquee:hover .mkt-marquee-track { animation-play-state: paused; }
@@ -305,7 +314,7 @@ html:lang(th) .mkt {
 .mkt-panel-list svg { width: 16px; height: 16px; color: var(--text-dim); }
 
 /* --------------------------------------------------------------- signal */
-.mkt-signal { min-height: 80vh; padding: 12vh 0 10vh; display: grid; align-content: center; gap: 48px; }
+.mkt-signal { min-height: 80vh; padding: 12vh 0 10vh; display: grid; grid-template-columns: minmax(0, 1fr); align-content: center; gap: 48px; }
 .mkt-signal-label { padding: 0 var(--gutter); }
 .mkt-recognition { border-block: 1px solid var(--line); padding: 22px 0; }
 .mkt-recognition .mkt-marquee-item { font-family: var(--f-mono); font-size: clamp(16px, 1.6vw, 24px); letter-spacing: 0.06em; white-space: nowrap; }
@@ -401,11 +410,16 @@ html:lang(th) .mkt {
   .mkt-hero-orbitals { width: 120vw; left: 50%; top: 60%; translate: -50% -50%; }
 
   .mkt-problem { grid-template-columns: 1fr; align-content: center; gap: 30px; }
-  .mkt-problem-cols { grid-template-columns: 1fr; gap: 18px; }
+  .mkt-problem-cols { grid-template-columns: 1fr; gap: 18px; position: relative; }
+  .mkt-problem-cols::before { content: ""; position: absolute; inset: -12% -20%; z-index: -1; background: radial-gradient(closest-side, rgba(5, 7, 13, 0.85), rgba(5, 7, 13, 0.4) 70%, transparent); }
+  .mkt-hero-lede { position: relative; }
+  .mkt-hero-lede::before { content: ""; position: absolute; inset: -20% -10%; z-index: -1; background: radial-gradient(closest-side, rgba(5, 7, 13, 0.8), transparent); }
   .mkt-problem-col { transform: none; }
   .mkt-glitch > span { gap: 6px; }
 
-  .mkt-readout { position: relative; right: auto; top: auto; translate: none; width: 100%; }
+  .mkt-readout { position: relative; right: auto; top: auto; translate: none; width: 100%; padding: 14px 16px; }
+  .mkt-readout-row { padding: 7px 0; }
+  .mkt-readout-note { display: none; }
   .mkt-protocol { grid-template-rows: auto auto auto auto 1fr; }
   .mkt-steps { min-height: 190px; }
 
