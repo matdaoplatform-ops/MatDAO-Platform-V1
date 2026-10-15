@@ -135,6 +135,7 @@ function NavWallet() {
 /** Hides the bar while scrolling down and brings it back on any scroll up. */
 function useHideOnScroll() {
   const [hidden, setHidden] = useState(false)
+  const [scrolled, setScrolled] = useState(false)
   useEffect(() => {
     let last = window.scrollY
     let frame = 0
@@ -143,6 +144,7 @@ function useHideOnScroll() {
       frame = requestAnimationFrame(() => {
         frame = 0
         const y = window.scrollY
+        setScrolled(y > 40)
         if (y > last + 4 && y > 160) setHidden(true)
         else if (y < last - 4 || y < 80) setHidden(false)
         if (Math.abs(y - last) > 4) last = y
@@ -154,7 +156,7 @@ function useHideOnScroll() {
       cancelAnimationFrame(frame)
     }
   }, [])
-  return hidden
+  return { hidden, scrolled }
 }
 
 export function Navbar() {
@@ -164,7 +166,7 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const staffUnread = useStaffNotificationCount(user?.role === "staff")
-  const scrolledAway = useHideOnScroll()
+  const { hidden: scrolledAway, scrolled } = useHideOnScroll()
   const hidden = scrolledAway && !dropdownOpen && !mobileOpen
   const onLanding = pathname === "/"
 
@@ -193,7 +195,7 @@ export function Navbar() {
 
   return (
     <header
-      className={`app-nav ${onLanding ? "app-nav--overlay" : ""} ${hidden ? "is-hidden" : ""}`}
+      className={`app-nav ${onLanding ? "app-nav--overlay" : ""} ${scrolled ? "is-scrolled" : ""} ${hidden ? "is-hidden" : ""}`}
       data-landing={onLanding ? "" : undefined}
     >
       <div className="app-nav-inner">

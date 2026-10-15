@@ -124,8 +124,9 @@ export function useCues(id: SectionId, root: RefObject<HTMLElement | null>) {
     let unsub = () => {}
     let cancelled = false
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    // Line splitting needs the final fonts, or the line breaks are wrong.
-    document.fonts.ready.then(() => {
+    // Line splitting needs the final fonts, or the line breaks are wrong. On a slow
+    // font host, give up waiting after 3s so the copy never stays hidden.
+    Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 3000))]).then(() => {
       if (cancelled) return
       cues = Array.from(el.querySelectorAll<HTMLElement>("[data-cue]")).map((n) => buildCue(n, reduced))
       const apply = () => {
