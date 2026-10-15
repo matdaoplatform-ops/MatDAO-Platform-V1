@@ -49,10 +49,13 @@ export function SmoothScroll() {
         if (!el) return null
         const top = el.getBoundingClientRect().top + window.scrollY
         const h = el.offsetHeight
-        // Tall (sticky) sections: progress runs while the section is pinned.
-        // Short sections: progress runs while the section crosses the viewport.
-        const start = h > vh ? top : top - vh
-        const end = h > vh ? top + h - vh : top + h
+        // Pinned sections (with a sticky stage): progress runs while the stage is pinned.
+        // Flowing sections: progress runs while the section crosses the viewport.
+        // Decided by markup, not height, so a flowing section that happens to be a
+        // little taller than the window (short laptop screens) keeps its full range.
+        const pinned = !!el.querySelector(".mkt-sticky") && h > vh
+        const start = pinned ? top : top - vh
+        const end = pinned ? top + h - vh : top + h
         return { id, el, start, end: Math.max(start + 1, end) }
       }).filter(Boolean) as typeof boxes
       scrollStore.setState({ viewport: { w: window.innerWidth, h: vh } })
