@@ -7,6 +7,7 @@ import { WagmiProvider } from "@/components/providers/WagmiProvider"
 import { Toaster } from "react-hot-toast"
 import { Web3Background } from "@/components/web3-background"
 import { DemoModeToggle } from "@/components/demo-mode"
+import { AppChrome } from "@/components/app-chrome"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"], variable: "--font-jakarta" })
@@ -27,17 +28,23 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${jakarta.variable}`}>
+    <html lang="en" className={`${inter.variable} ${jakarta.variable}`} suppressHydrationWarning>
       <body className="font-sans antialiased">
-        <Web3Background />
+        <AppChrome>
+          <Web3Background />
+        </AppChrome>
         <WagmiProvider>
           <AuthProvider>
-            <Navbar />
+            <AppChrome>
+              <Navbar />
+            </AppChrome>
             <main>{children}</main>
           </AuthProvider>
         </WagmiProvider>
         <Toaster position="top-right" />
-        <DemoModeToggle />
+        <AppChrome>
+          <DemoModeToggle />
+        </AppChrome>
       </body>
     </html>
   )
