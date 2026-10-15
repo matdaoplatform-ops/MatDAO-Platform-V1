@@ -41,9 +41,10 @@ export function Finale({ onLocale }: { onLocale: (l: "en" | "th") => void }) {
     <section ref={root} id="finale" data-section="finale" className="mkt-sec" style={{ height: "260vh" }} aria-labelledby="finale-title">
       <div className="mkt-sticky mkt-finale">
         <div ref={manifesto} className="mkt-manifesto">
-          <p className="mkt-manifesto-text" aria-label={t.finale.manifesto.join(" ")}>
+          <p className="mkt-manifesto-text">
+            <span className="mkt-sr">{t.finale.manifesto.join(" ")}</span>
             {t.finale.manifesto.map((l) => (
-              <span key={l} className="mkt-ca" data-text={l} aria-hidden="true">{l}</span>
+              <span key={l} className="mkt-ca" aria-hidden="true">{l}</span>
             ))}
           </p>
           <p className="mkt-mono mkt-manifesto-note" data-cue="fade" data-in="0.04" data-out="0.32">{t.finale.manifestoNote}</p>

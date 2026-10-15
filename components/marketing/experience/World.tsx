@@ -9,6 +9,7 @@ import { CAM_KEYS, MORPH_KEYS } from "./story"
 import { cameraPose } from "./camera"
 import { createParticleMaterial, makeGlyphTexture } from "./particleMaterial"
 import { sceneFx } from "./fx"
+import { tuning } from "./tuning"
 
 type ShapeBuffers = { pos: THREE.BufferAttribute; col: THREE.BufferAttribute }
 
@@ -171,8 +172,9 @@ export function World({ count }: { count: number }) {
     const ma = metaOf(a), mb = metaOf(b)
     u.uCenterA.value.set(...centerOf(a))
     u.uCenterB.value.set(...centerOf(b))
-    u.uSpinA.value = time * ma.spin
-    u.uSpinB.value = time * mb.spin
+    const spinOf = (m: typeof ma) => (m.osc ? Math.sin(time * m.spin) * m.osc - 0.25 : time * m.spin)
+    u.uSpinA.value = spinOf(ma)
+    u.uSpinB.value = spinOf(mb)
     u.uMetaA.value.set(ma.size, ma.glyph, ma.ember, ma.sway)
     u.uMetaB.value.set(mb.size, mb.glyph, mb.ember, mb.sway)
     u.uGainA.value = ma.gain
@@ -183,12 +185,26 @@ export function World({ count }: { count: number }) {
     sceneFx.shapeA = a
     sceneFx.shapeB = b
     sceneFx.morph = m
+    if (process.env.NODE_ENV !== "production") (window as unknown as { __fx: unknown }).__fx = { ...sceneFx, it: intro.current.start < 0 ? -1 : time - intro.current.start, time }
 
     // --------------------------------------------------------- camera
     const reduced = s.reducedMotion
     const uu = cameraPose(y, tmp.p, tmp.l, s)
     const k = CAM_KEYS[Math.min(CAM_KEYS.length - 1, Math.round(uu * (CAM_KEYS.length - 1)))]
     const cam = camera as THREE.PerspectiveCamera
+    // Portrait screens: centre the shapes (they sit right of centre for the
+    // desktop copy column), pull back, and park them in the lower half under the copy.
+    const aspect = cam.aspect
+    if (aspect < 1) {
+      const k = Math.min(1, (1 - aspect) / 0.55)
+      const shift = 1.05 * k
+      tmp.p.x += shift
+      tmp.l.x += shift
+      tmp.dir.copy(tmp.p).sub(tmp.l).multiplyScalar(1 + 0.55 * k)
+      tmp.p.copy(tmp.l).add(tmp.dir)
+      tmp.p.y += 0.6 * k
+      tmp.l.y += 0.75 * k
+    }
     if (k.fov && Math.abs(cam.fov - k.fov) > 0.01) {
       cam.fov += (k.fov - cam.fov) * 0.1
       cam.updateProjectionMatrix()
@@ -219,8 +235,10 @@ export function World({ count }: { count: number }) {
     }
 
     // Idle drift never stops, so the page never looks frozen.
-    u.uDrift.value = reduced ? 0 : 0.012
-    u.uFlight.value = reduced ? 0 : 0.45
+    u.uDrift.value = reduced ? 0 : tuning.drift
+    u.uFlight.value = reduced ? 0 : tuning.flight
+    u.uSize.value = tuning.pointSize
+    u.uFog.value = tuning.fog
   })
 
   return <points ref={points} geometry={geom} material={material} frustumCulled={false} />

@@ -17,7 +17,7 @@ export function Paths() {
   const b = t.paths.backers
   return (
     <section ref={root} id="join" data-section="paths" className="mkt-sec mkt-paths" aria-labelledby="paths-title">
-      <p id="paths-title" className="mkt-label" data-cue="scramble" data-in="0.15">{t.paths.label}</p>
+      <h2 id="paths-title" className="mkt-label" data-cue="scramble" data-in="0.15">{t.paths.label}</h2>
       <div className="mkt-paths-grid">
         <article className="mkt-panel mkt-panel-catalyst" data-cue="rise" data-in="0.2">
           <p className="mkt-mono mkt-panel-kicker">{r.kicker}</p>
