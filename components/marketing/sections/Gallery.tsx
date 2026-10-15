@@ -1,7 +1,7 @@
 "use client"
 
 import Link from "next/link"
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { ArrowRight } from "lucide-react"
 import type { ProjectCard } from "@/content/en"
 import { scrollStore } from "@/store/scroll"
@@ -10,7 +10,7 @@ import { useCues, useSectionScrub } from "../cues"
 import { AccentText, orDash } from "../ui/text"
 
 /** One research card. Used by the DOM track (mobile, fallback) and inside the 3D corridor. */
-export function ResearchCard({ p, labels, dim = false }: { p: ProjectCard; labels: { trl: string; funded: string; view: string; sample: string }; dim?: boolean }) {
+export function ResearchCard({ p, labels, dim = false, plain = false }: { p: ProjectCard; labels: { trl: string; funded: string; view: string; sample: string }; dim?: boolean; /** plain <a> (for cards rendered outside the Next router, e.g. inside the 3D corridor) */ plain?: boolean }) {
   return (
     <article className={`mkt-card ${dim ? "is-dim" : ""}`} data-field={p.field}>
       <div className="mkt-card-top">
@@ -26,9 +26,15 @@ export function ResearchCard({ p, labels, dim = false }: { p: ProjectCard; label
       <div className="mkt-card-bar" aria-hidden="true">
         <div style={{ transform: `scaleX(${p.funded ?? 0})` }} />
       </div>
-      <Link href={p.id === "terra" ? "/project" : "/project"} className="mkt-link mkt-card-link" data-cursor="hover">
-        {labels.view} <ArrowRight aria-hidden="true" />
-      </Link>
+      {plain ? (
+        <a href="/project" className="mkt-link mkt-card-link" data-cursor="hover">
+          {labels.view} <ArrowRight aria-hidden="true" />
+        </a>
+      ) : (
+        <Link href="/project" className="mkt-link mkt-card-link" data-cursor="hover">
+          {labels.view} <ArrowRight aria-hidden="true" />
+        </Link>
+      )}
     </article>
   )
 }
@@ -47,12 +53,15 @@ export function Gallery() {
     el.style.transform = `translate3d(${-p * max}px, 0, 0)`
   })
   const labels = { trl: t.gallery.trl, funded: t.gallery.funded, view: t.gallery.view, sample: t.gallery.sample }
+  useEffect(() => {
+    scrollStore.setState({ galleryLabels: { trl: t.gallery.trl, funded: t.gallery.funded, view: t.gallery.view, sample: t.gallery.sample }, galleryProjects: t.gallery.projects })
+  }, [t])
   const fieldOf = (i: number) => (i === 0 ? null : t.gallery.filters[i])
   const pick = (i: number) => {
     setFilter(i)
     const field = fieldOf(i)
     const idx = field ? en_fields(t.gallery.projects).indexOf(field) : 0
-    scrollStore.setState({ galleryTarget: Math.max(0, idx) })
+    scrollStore.setState({ galleryTarget: Math.max(0, idx), galleryFilter: field })
   }
 
   return (
@@ -77,6 +86,7 @@ export function Gallery() {
             </ul>
           </div>
         </div>
+        {/* Desktop with WebGL: these same cards are drawn in the 3D corridor and this track is hidden. */}
         <div className="mkt-gallery-dom">
           <div ref={track} className="mkt-card-track">
             {t.gallery.projects.map((p, i) => (

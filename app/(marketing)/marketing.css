@@ -214,7 +214,7 @@ html:lang(th) .mkt {
 .mkt-step { position: absolute; inset: 0 auto auto 0; display: grid; gap: 14px; }
 .mkt-step-title { font-size: clamp(28px, 2.6vw, 40px); }
 .mkt-readout {
-  position: absolute; right: var(--gutter); top: 50%; translate: 0 -30%; width: min(320px, 80vw);
+  position: absolute; right: var(--gutter); top: 62%; translate: 0 -10%; width: min(300px, 80vw);
   padding: 20px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 60%, transparent);
   border: 1px solid var(--line); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
 }
@@ -258,7 +258,18 @@ html:lang(th) .mkt {
 .mkt-filter-mark { width: 14px; height: 1px; background: currentColor; transition: width 0.4s var(--ease-out); }
 .mkt-filter button[aria-pressed="true"] .mkt-filter-mark { width: 28px; background: var(--data-a); }
 .mkt-gallery-dom { overflow: hidden; margin-right: calc(-1 * var(--gutter)); }
-.mkt-has-corridor .mkt-gallery-dom { visibility: hidden; }
+[data-mkt-corridor] .mkt-gallery-dom { visibility: hidden; }
+/* With the 3D corridor, the gallery's pinned layer lets the pointer through to the cards in the canvas. */
+[data-mkt-corridor] .mkt-main { pointer-events: none; }
+[data-mkt-corridor] .mkt-main > .mkt-sec { pointer-events: auto; }
+[data-mkt-corridor] .mkt-main > [data-section="gallery"], [data-mkt-corridor] .mkt-gallery { pointer-events: none; }
+[data-mkt-corridor] .mkt-gallery-side { pointer-events: auto; }
+.mkt-card-3d-wrap { pointer-events: auto; }
+.mkt-card-3d { transition: filter 0.5s var(--ease-out); }
+.mkt-card-3d .mkt-card { width: 420px; padding: 28px; background: color-mix(in srgb, var(--surface) 74%, transparent); }
+.mkt-card-3d .mkt-card-title { font-size: 48px; }
+.mkt-card-3d.is-hover .mkt-card { border-color: rgba(56, 225, 255, 0.5); box-shadow: 0 0 60px -10px rgba(56, 225, 255, 0.45); }
+.mkt-card-3d.is-dim { filter: blur(3px) brightness(0.55); }
 .mkt-card-track { display: flex; gap: 20px; width: max-content; padding-right: var(--gutter); will-change: transform; }
 .mkt-card {
   width: 340px; padding: 22px; border-radius: 18px; display: grid; gap: 12px;
@@ -316,6 +327,7 @@ html:lang(th) .mkt {
 .mkt-manifesto { position: absolute; inset: 0; display: grid; place-content: center; gap: 28px; text-align: center; pointer-events: none; }
 .mkt-manifesto-text { margin: 0; display: grid; font-family: var(--f-mono); font-weight: 500; font-size: clamp(56px, 11vw, 190px); line-height: 0.92; letter-spacing: -0.02em; color: #d9dde6; }
 .mkt-ca { position: relative; text-shadow: -2px 0 rgba(255, 60, 60, 0.55), 2px 0 rgba(60, 140, 255, 0.55); }
+.mkt-manifesto-text.is-gl, [data-mkt-webgl] .mkt-manifesto-text { opacity: 0; } /* drawn in 3D behind the glass ring; kept here for screen readers and no-WebGL */
 .mkt-manifesto-note { max-width: 44ch; margin: 0 auto; text-transform: none; letter-spacing: 0.02em; font-size: 13px; color: var(--text-dim); }
 .mkt-window { position: absolute; inset: 0; pointer-events: none; opacity: 0; --grow: 0; }
 .mkt-window-frame {
@@ -400,7 +412,6 @@ html:lang(th) .mkt {
   .mkt-gallery { grid-template-columns: 1fr; align-content: center; gap: 22px; }
   .mkt-gallery-side { gap: 14px; }
   .mkt-filter ul { display: flex; flex-wrap: wrap; gap: 6px 14px; }
-  .mkt-has-corridor .mkt-gallery-dom { visibility: visible; }
   .mkt-gallery-dom { overflow-x: auto; scroll-snap-type: x mandatory; margin: 0 calc(-1 * var(--gutter)); padding: 0 var(--gutter); scrollbar-width: none; }
   .mkt-card-track { transform: none !important; }
   .mkt-card { width: 78vw; scroll-snap-align: center; }

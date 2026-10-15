@@ -6,6 +6,7 @@ import * as THREE from "three"
 import { scrollStore, storyToScroll } from "@/store/scroll"
 import { ANCHOR, META, SHAPE_ORDER, rng, type ShapeId } from "./shapes"
 import { CAM_KEYS, MORPH_KEYS } from "./story"
+import { cameraPose } from "./camera"
 import { createParticleMaterial, makeGlyphTexture } from "./particleMaterial"
 import { sceneFx } from "./fx"
 
@@ -120,12 +121,6 @@ export function World({ count }: { count: number }) {
     return true
   }
 
-  // --- camera path ---------------------------------------------------------
-  const camCurves = useMemo(() => {
-    const pos = new THREE.CatmullRomCurve3(CAM_KEYS.map((k) => new THREE.Vector3(...k.pos)), false, "centripetal")
-    const look = new THREE.CatmullRomCurve3(CAM_KEYS.map((k) => new THREE.Vector3(...k.look)), false, "centripetal")
-    return { pos, look }
-  }, [])
   const tmp = useMemo(() => ({ p: new THREE.Vector3(), l: new THREE.Vector3(), m: new THREE.Vector3(), dir: new THREE.Vector3(), par: { x: 0, y: 0 } }), [])
 
   /** Piecewise key lookup → (index, eased local t). */
@@ -183,6 +178,7 @@ export function World({ count }: { count: number }) {
     u.uGainA.value = ma.gain
     u.uGainB.value = mb.gain
     const inFlight = Math.sin(Math.PI * Math.min(1, m * 1.25))
+    u.uSwirl.value = (a === "field" && b === "biochar") || (a === "biochar" && b === "field") ? 2.6 : a === "seed" ? 0 : 0.7
     sceneFx.transition = inFlight
     sceneFx.shapeA = a
     sceneFx.shapeB = b
@@ -190,12 +186,8 @@ export function World({ count }: { count: number }) {
 
     // --------------------------------------------------------- camera
     const reduced = s.reducedMotion
-    const c = locate(CAM_KEYS, y, s)
-    const nk = CAM_KEYS.length - 1
-    const uu = Math.min(1, (c.i + ease(c.t)) / nk)
-    camCurves.pos.getPoint(uu, tmp.p)
-    camCurves.look.getPoint(uu, tmp.l)
-    const k = CAM_KEYS[Math.min(nk, c.i + (c.t > 0.5 ? 1 : 0))]
+    const uu = cameraPose(y, tmp.p, tmp.l, s)
+    const k = CAM_KEYS[Math.min(CAM_KEYS.length - 1, Math.round(uu * (CAM_KEYS.length - 1)))]
     const cam = camera as THREE.PerspectiveCamera
     if (k.fov && Math.abs(cam.fov - k.fov) > 0.01) {
       cam.fov += (k.fov - cam.fov) * 0.1

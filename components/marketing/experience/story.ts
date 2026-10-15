@@ -49,6 +49,8 @@ export interface CamKey {
   pos: Vec3
   look: Vec3
   fov?: number
+  /** Constant speed from this key to the next (no ease-in/out beat). */
+  linear?: boolean
 }
 
 /**
@@ -68,8 +70,8 @@ export const CAM_KEYS: CamKey[] = [
   { s: "terra", at: 0.28, pos: [0.3, -0.9, -21.5], look: [0.4, -1.5, -28] },
   { s: "terra", at: 0.52, pos: [0.25, 0.1, -24.5], look: [1.0, -0.1, -31] },
   { s: "terra", at: 0.95, pos: [0.1, 0.25, -24.9], look: [0.95, -0.1, -31] },
-  { s: "gallery", at: 0.0, pos: [0, 0, -34], look: [0, 0, -44] },
-  { s: "gallery", at: 0.98, pos: [0, 0, -55.5], look: [0, 0, -66] },
+  { s: "gallery", at: 0.0, pos: [-0.55, 0.05, -34], look: [0.45, 0, -44], linear: true },
+  { s: "gallery", at: 0.98, pos: [-0.55, 0.05, -55.5], look: [0.45, 0, -66] },
   { s: "paths", at: 0.45, pos: [0, 0.25, -56.2], look: [0, 0, -63] },
   { s: "signal", at: 0.5, pos: [0, 0.3, -63.8], look: [0, 0, -71] },
   { s: "finale", at: 0.06, pos: [0, 0.05, -72.6], look: [0, 0.1, -79] },
