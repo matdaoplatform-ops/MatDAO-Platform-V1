@@ -630,7 +630,7 @@ function flora(n: number): ShapeData {
   return { id: "flora", pos: w.pos, col: w.col }
 }
 
-/** Two paths: an orange cluster (researchers) and a cyan one (backers). */
+/** Two paths: an orange cluster (researchers) and a cyan one (investors). */
 function paths(n: number): ShapeData {
   const r = rng(91)
   const w = new Writer(n, ANCHOR.paths)

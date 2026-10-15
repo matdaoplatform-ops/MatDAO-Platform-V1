@@ -2,8 +2,36 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Brand tokens shared by the landing and the app (the landing's .mkt block repeats them). */
+:root {
+  --bg: #05070d;
+  --surface: #0b1020;
+  --line: rgba(255, 255, 255, 0.12);
+  --line-strong: rgba(255, 255, 255, 0.22);
+  --text: #edeff5;
+  --text-dim: #8a93a6;
+  --catalyst-a: #ff6a2b;
+  --catalyst-b: #ffb15c;
+  --data-a: #38e1ff;
+  --data-b: #5b7cff;
+  --bio: #b8f26b;
+  --gutter: clamp(20px, 4vw, 64px);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --f-display: var(--mkt-font-display), var(--mkt-font-thai), "Space Grotesk", system-ui, sans-serif;
+  --f-serif: var(--mkt-font-serif), var(--mkt-font-thai), "Instrument Serif", Georgia, serif;
+  --f-mono: var(--mkt-font-mono), var(--mkt-font-thai), "JetBrains Mono", ui-monospace, monospace;
+  /* Older pages set these two families inline; they now resolve to the shared display face. */
+  --font-jakarta: var(--mkt-font-display);
+  --font-inter: var(--mkt-font-display);
+  color-scheme: dark;
+}
+html:lang(th) {
+  --f-display: var(--mkt-font-thai), var(--mkt-font-display), system-ui, sans-serif;
+}
+
 body {
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--f-display);
+  -webkit-font-smoothing: antialiased;
 }
 
 @layer utilities {
@@ -14,38 +42,38 @@ body {
 
 @layer base {
   :root {
-    --background: 220 15% 5%;
-    --foreground: 0 0% 95%;
-    --card: 220 15% 8%;
-    --card-foreground: 0 0% 95%;
-    --popover: 220 15% 8%;
-    --popover-foreground: 0 0% 95%;
+    --background: 225 44% 4%;
+    --foreground: 225 33% 95%;
+    --card: 226 49% 8%;
+    --card-foreground: 225 33% 95%;
+    --popover: 226 49% 8%;
+    --popover-foreground: 225 33% 95%;
     --primary: 217 91% 50%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 220 10% 14%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 220 10% 14%;
-    --muted-foreground: 220 5% 55%;
+    --secondary: 226 32% 12%;
+    --secondary-foreground: 225 25% 90%;
+    --muted: 226 32% 12%;
+    --muted-foreground: 221 14% 62%;
     --accent: 160 70% 40%;
     --accent-foreground: 0 0% 100%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 220 10% 18%;
-    --input: 220 10% 18%;
-    --ring: 217 91% 50%;
+    --border: 225 20% 17%;
+    --input: 225 20% 17%;
+    --ring: 190 100% 61%;
     --chart-1: 217 91% 50%;
     --chart-2: 160 70% 40%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
     --radius: 0.625rem;
-    --sidebar-background: 220 15% 5%;
+    --sidebar-background: 225 44% 4%;
     --sidebar-foreground: 0 0% 95%;
     --sidebar-primary: 217 91% 50%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 220 10% 14%;
+    --sidebar-accent: 226 32% 12%;
     --sidebar-accent-foreground: 0 0% 95%;
-    --sidebar-border: 220 10% 18%;
+    --sidebar-border: 225 20% 17%;
     --sidebar-ring: 217 91% 50%;
   }
 }
@@ -65,7 +93,7 @@ body {
 }
 
 .ai-studio .font-headline {
-  font-family: var(--font-jakarta), var(--font-inter), system-ui, sans-serif;
+  font-family: var(--f-display);
 }
 
 .ai-studio .workflow-panel {
@@ -122,3 +150,166 @@ body {
 .ai-studio .risk-flag-pulse {
   animation: pulse-glow 2s ease-in-out infinite;
 }
+
+/* ==========================================================================
+   App re-skin — the pages behind the landing share its palette, type and
+   glass navbar, without the 3D. Only presentation lives here.
+   ========================================================================== */
+body { background: var(--bg); }
+h1, h2, h3 { font-family: var(--f-display); letter-spacing: -0.02em; }
+/* Older pages set headings in bold; the shared face reads better a step lighter (landing headings excluded). */
+h1:not(.mkt *), h2:not(.mkt *) { font-weight: 500 !important; }
+::selection { background: var(--data-b); color: #fff; }
+:focus-visible { outline-color: var(--data-a); }
+.app-mono { font-family: var(--f-mono); text-transform: uppercase; letter-spacing: 0.08em; }
+.app-serif { font-family: var(--f-serif); font-style: italic; font-weight: 400; letter-spacing: 0; }
+
+/* --- Navbar: logo left, frosted pill centre, account + wallet right --- */
+.app-nav {
+  position: sticky; top: 0; z-index: 50; width: 100%;
+  padding-top: env(safe-area-inset-top, 0px);
+  background: linear-gradient(to bottom, rgba(5, 7, 13, 0.92), rgba(5, 7, 13, 0.72));
+  backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border-bottom: 1px solid var(--line);
+  transition: transform 0.6s var(--ease-out), opacity 0.4s ease;
+}
+.app-nav--overlay { position: fixed; inset: 0 0 auto 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; border-bottom: 0; }
+.app-nav.is-hidden { transform: translateY(-110%); opacity: 0; }
+.app-nav-inner {
+  height: 72px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 16px;
+  padding-left: max(var(--gutter), env(safe-area-inset-left, 0px));
+  padding-right: max(var(--gutter), env(safe-area-inset-right, 0px));
+}
+.app-nav-logo { justify-self: start; display: block; }
+.app-nav-logo img { height: 30px; width: auto; display: block; }
+.app-nav-pill {
+  display: none; align-items: center; gap: 2px; padding: 5px; border-radius: 999px;
+  background: color-mix(in srgb, var(--surface) 50%, transparent); border: 1px solid var(--line);
+  backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
+  box-shadow: 0 0 30px rgba(56, 225, 255, 0.06);
+}
+.app-nav-link {
+  position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 9px 15px; border-radius: 999px;
+  font-size: 14px; font-weight: 400; white-space: nowrap; color: color-mix(in oklab, var(--text) 80%, transparent);
+  background: none; border: 0; cursor: pointer; transition: background 0.3s, color 0.3s;
+}
+.app-nav-link:hover, .app-nav-dd:focus-within > .app-nav-link { background: rgba(255, 255, 255, 0.07); color: var(--text); }
+.app-nav-link.is-active { color: var(--text); background: rgba(56, 225, 255, 0.1); }
+.app-nav-link.is-active::after {
+  content: ""; position: absolute; left: 50%; bottom: 3px; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%;
+  background: var(--data-a); box-shadow: 0 0 8px var(--data-a);
+}
+.app-nav-link svg { width: 14px; height: 14px; opacity: 0.6; transition: transform 0.3s; }
+.app-nav-dd { position: relative; }
+.app-nav-dd:hover .app-nav-link svg, .app-nav-dd:focus-within .app-nav-link svg { transform: rotate(180deg); }
+.app-nav-menu, .app-nav-panel {
+  display: grid; padding: 6px; border-radius: 16px; background: color-mix(in srgb, var(--surface) 92%, transparent);
+  border: 1px solid var(--line); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+}
+.app-nav-menu {
+  position: absolute; left: 50%; top: calc(100% + 10px); min-width: 220px; translate: -50% 6px;
+  opacity: 0; visibility: hidden; transition: opacity 0.25s, translate 0.35s var(--ease-out), visibility 0.25s;
+}
+.app-nav-menu::before { content: ""; position: absolute; inset: -12px 0 auto; height: 12px; }
+.app-nav-dd:hover .app-nav-menu, .app-nav-dd:focus-within .app-nav-menu { opacity: 1; visibility: visible; translate: -50% 0; }
+.app-nav-menu a { padding: 10px 12px; border-radius: 10px; font-size: 14px; color: var(--text); transition: background 0.2s; }
+.app-nav-menu a:hover, .app-nav-menu a.is-active { background: rgba(255, 255, 255, 0.06); }
+.app-nav-panel-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 10px;
+  font-size: 13px; color: var(--text-dim); transition: background 0.2s, color 0.2s;
+}
+.app-nav-panel-item:hover { background: rgba(255, 255, 255, 0.06); color: var(--text); }
+.app-nav-right { justify-self: end; display: flex; align-items: center; gap: 12px; }
+.app-nav-wallet { display: none; }
+.app-nav-signin { font-size: 14px; color: var(--text-dim); transition: color 0.3s; }
+.app-nav-signin:hover { color: var(--text); }
+.app-nav-cta {
+  display: inline-flex; align-items: center; height: 38px; padding: 0 18px; border-radius: 999px;
+  font-size: 14px; color: var(--text); border: 1px solid var(--line-strong);
+  background: rgba(255, 255, 255, 0.02); transition: border-color 0.3s, background 0.3s;
+}
+.app-nav-cta:hover { border-color: rgba(255, 255, 255, 0.5); background: rgba(255, 255, 255, 0.06); }
+.app-nav-wallet-btn {
+  display: inline-flex; align-items: center; gap: 8px; height: 38px; min-width: 40px; padding: 0 14px; border-radius: 999px;
+  font-size: 13px; color: var(--text); border: 1px solid rgba(56, 225, 255, 0.35);
+  background: rgba(56, 225, 255, 0.06); transition: border-color 0.3s, background 0.3s;
+}
+.app-nav-wallet-btn:hover { border-color: rgba(56, 225, 255, 0.7); background: rgba(56, 225, 255, 0.12); }
+.app-nav-wallet-btn svg { width: 15px; height: 15px; color: var(--data-a); }
+.app-nav-wallet-btn.is-warning { border-color: rgba(255, 106, 43, 0.6); background: rgba(255, 106, 43, 0.1); color: var(--catalyst-b); }
+.app-nav-wallet-btn.is-connected { font-family: var(--f-mono); font-size: 12px; }
+.app-nav-wallet-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bio); box-shadow: 0 0 8px var(--bio); }
+.app-nav-icon, .app-nav-burger {
+  display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--text);
+  background: color-mix(in srgb, var(--surface) 60%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.app-nav-account {
+  display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 12px 0 5px; border-radius: 999px;
+  font-size: 13px; color: var(--text); border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 60%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.3s;
+}
+.app-nav-account:hover { border-color: var(--line-strong); }
+.app-nav-avatar {
+  display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; color: #05070d; background: linear-gradient(135deg, var(--data-a), var(--data-b));
+}
+.app-nav-sheet { background: var(--bg) !important; border-color: var(--line) !important; }
+.app-nav-sheet-link {
+  display: flex; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 12px;
+  font-size: 15px; color: var(--text); transition: background 0.2s;
+}
+.app-nav-sheet-link:hover { background: rgba(255, 255, 255, 0.05); }
+.app-nav-sheet-link.is-active { background: rgba(56, 225, 255, 0.1); color: #bff6ff; }
+.app-nav-sheet-btn {
+  display: flex; align-items: center; justify-content: center; height: 44px; border-radius: 999px;
+  font-size: 14px; color: var(--text); border: 1px solid var(--line-strong);
+}
+.app-nav-sheet-btn--primary { border: 0; color: #160a03; font-weight: 500; background: linear-gradient(100deg, var(--catalyst-a), var(--catalyst-b)); }
+@media (min-width: 640px) { .app-nav-wallet { display: block; } }
+@media (min-width: 1280px) {
+  .app-nav-pill { display: flex; }
+  .app-nav-burger { display: none; }
+}
+@media (max-width: 1279px) { .app-nav-inner { grid-template-columns: 1fr auto; } }
+@media (max-width: 900px) { .app-nav-inner { height: 64px; } }
+@media (prefers-reduced-motion: reduce) { .app-nav { transition: none; } }
+
+/* Pages built on a light palette (no dark: variants) get the dark surface here, without touching their markup. */
+.app-remap.bg-gray-50, .app-remap .bg-gray-50 { background-color: transparent; }
+.app-remap .bg-white { background-color: hsl(var(--card) / 0.85); }
+.app-remap .bg-gray-100, .app-remap .bg-gray-200 { background-color: rgba(255, 255, 255, 0.06); }
+.app-remap .hover\:bg-white:hover { background-color: rgba(255, 255, 255, 0.08); }
+.app-remap .text-gray-900 { color: var(--text); }
+.app-remap .text-gray-700, .app-remap .text-gray-600 { color: #c3c9d6; }
+.app-remap .text-gray-500 { color: var(--text-dim); }
+.app-remap .hover\:text-gray-900:hover { color: #fff; }
+.app-remap .border-gray-200, .app-remap .border-gray-300 { border-color: var(--line); }
+.app-remap .from-white { --tw-gradient-from: hsl(var(--card)) var(--tw-gradient-from-position); --tw-gradient-to: transparent var(--tw-gradient-to-position); --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to); }
+.app-remap .to-white { --tw-gradient-to: hsl(var(--card)) var(--tw-gradient-to-position); }
+.app-remap .shadow-sm { box-shadow: none; }
+.app-remap .bg-blue-50, .app-remap .bg-blue-100 { background-color: rgba(91,124,255, 0.1); }
+.app-remap .border-blue-200 { border-color: rgba(91,124,255, 0.3); }
+.app-remap .text-blue-600, .app-remap .text-blue-700 { color: rgb(91,124,255); }
+.app-remap .bg-green-50, .app-remap .bg-green-100 { background-color: rgba(184,242,107, 0.1); }
+.app-remap .border-green-200 { border-color: rgba(184,242,107, 0.3); }
+.app-remap .text-green-600, .app-remap .text-green-700 { color: rgb(184,242,107); }
+.app-remap .bg-red-50, .app-remap .bg-red-100 { background-color: rgba(255,99,99, 0.1); }
+.app-remap .border-red-200 { border-color: rgba(255,99,99, 0.3); }
+.app-remap .text-red-600, .app-remap .text-red-700 { color: rgb(255,99,99); }
+.app-remap .bg-amber-50, .app-remap .bg-amber-100 { background-color: rgba(255,177,92, 0.1); }
+.app-remap .border-amber-200 { border-color: rgba(255,177,92, 0.3); }
+.app-remap .text-amber-600, .app-remap .text-amber-700 { color: rgb(255,177,92); }
+.app-remap .bg-yellow-50, .app-remap .bg-yellow-100 { background-color: rgba(255,214,102, 0.1); }
+.app-remap .border-yellow-200 { border-color: rgba(255,214,102, 0.3); }
+.app-remap .text-yellow-600, .app-remap .text-yellow-700 { color: rgb(255,214,102); }
+.app-remap .bg-indigo-50, .app-remap .bg-indigo-100 { background-color: rgba(124,140,255, 0.1); }
+.app-remap .border-indigo-200 { border-color: rgba(124,140,255, 0.3); }
+.app-remap .text-indigo-600, .app-remap .text-indigo-700 { color: rgb(124,140,255); }
+.app-remap .bg-purple-50, .app-remap .bg-purple-100 { background-color: rgba(170,130,255, 0.1); }
+.app-remap .border-purple-200 { border-color: rgba(170,130,255, 0.3); }
+.app-remap .text-purple-600, .app-remap .text-purple-700 { color: rgb(170,130,255); }
+.app-remap .hover\:bg-blue-100:hover { background-color: rgba(91, 124, 255, 0.18); }
+.app-remap .hover\:text-blue-700:hover { color: #a9b9ff; }

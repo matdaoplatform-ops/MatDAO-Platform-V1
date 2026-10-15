@@ -76,26 +76,26 @@ export function DemoModeToggle() {
       <div className="flex flex-col items-end gap-2">
         {/* Settings Panel */}
         {showSettings && (
-          <div className="mb-2 border border-gray-200 bg-white rounded-lg p-4 shadow-lg">
-            <h4 className="mb-3 text-sm font-semibold text-gray-900">Demo Settings</h4>
+          <div className="mb-2 rounded-2xl border border-white/10 bg-[#0b1020]/95 p-4 shadow-2xl shadow-black/40 backdrop-blur-xl">
+            <h4 className="app-mono mb-3 text-[11px] text-[#8a93a6]">Demo settings</h4>
             <div className="space-y-3">
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={autoApprove}
                   onChange={toggleAutoApprove}
-                  className="h-4 w-4 accent-blue-600"
+                  className="h-4 w-4 accent-[#38e1ff]"
                 />
-                <span className="text-xs text-gray-700">Auto-approve submissions</span>
+                <span className="text-xs text-[#edeff5]">Auto-approve submissions</span>
               </label>
               <label className="flex items-center gap-3 cursor-pointer">
                 <input
                   type="checkbox"
                   checked={instantInvestment}
                   onChange={toggleInstantInvestment}
-                  className="h-4 w-4 accent-blue-600"
+                  className="h-4 w-4 accent-[#38e1ff]"
                 />
-                <span className="text-xs text-gray-700">Instant investment (no wallet)</span>
+                <span className="text-xs text-[#edeff5]">Instant investment (no wallet)</span>
               </label>
             </div>
           </div>
@@ -104,10 +104,10 @@ export function DemoModeToggle() {
         {/* Main Toggle Button */}
         <button
           onClick={toggleDemoMode}
-          className={`flex items-center gap-2 rounded-full px-4 py-2 transition-all shadow-sm ${
+          className={`flex items-center gap-2 rounded-full border px-4 py-2 backdrop-blur-xl transition-all ${
             isEnabled
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              ? 'border-[#38e1ff]/50 bg-[#38e1ff]/15 text-[#bff6ff] hover:bg-[#38e1ff]/25'
+              : 'border-white/10 bg-[#0b1020]/80 text-[#c9cedb] hover:border-white/25 hover:text-white'
           }`}
         >
           {isEnabled ? (
@@ -126,10 +126,11 @@ export function DemoModeToggle() {
         {/* Settings Toggle */}
         <button
           onClick={() => setShowSettings(!showSettings)}
-          className={`rounded-full p-2 transition-all shadow-sm ${
+          aria-label="Demo settings"
+          className={`rounded-full border p-2 backdrop-blur-xl transition-all ${
             showSettings
-              ? 'bg-blue-100 text-blue-600'
-              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              ? 'border-[#38e1ff]/50 bg-[#38e1ff]/15 text-[#bff6ff]'
+              : 'border-white/10 bg-[#0b1020]/80 text-[#c9cedb] hover:border-white/25 hover:text-white'
           }`}
         >
           <Settings className="h-4 w-4" />
