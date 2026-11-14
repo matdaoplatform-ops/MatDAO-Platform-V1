@@ -1,7 +1,7 @@
 'use client';
 
 import '@rainbow-me/rainbowkit/styles.css';
-import { getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
+import { darkTheme, getDefaultConfig, RainbowKitProvider } from '@rainbow-me/rainbowkit';
 import { WagmiProvider as WagmiProviderCore, http } from 'wagmi';
 import { sepolia } from 'wagmi/chains';
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
@@ -22,6 +22,14 @@ const config = getDefaultConfig({
   ssr: false,
 });
 
+// Wallet UI in the site palette: data-cyan accent on the deep-navy surface.
+const walletTheme = darkTheme({
+  accentColor: '#38e1ff',
+  accentColorForeground: '#05070d',
+  borderRadius: 'large',
+  overlayBlur: 'small',
+});
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -35,7 +43,7 @@ export function WagmiProvider({ children }: { children: React.ReactNode }) {
   return (
     <WagmiProviderCore config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider>{children}</RainbowKitProvider>
+        <RainbowKitProvider theme={walletTheme}>{children}</RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProviderCore>
   );
